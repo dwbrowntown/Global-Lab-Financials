@@ -1,0 +1,822 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#faf9f5;color:#141413}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Global Lab Budget Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --ground:#F5F4F8; --surface:#FFFFFF; --sunk:#EEECF3; --ink:#1B1426; --muted:#665F74; --faint:#9A93A8; --line:#E2DFE9;
+  --accent:#5B1FA6; --accent-ink:#FFFFFF; --actual:#3A1470; --forecast:#A27BDB; --remain:#E9E5F1;
+  --good:#1E7F55; --good-bg:#E3F3EA; --warn:#A86F00; --warn-bg:#FBF0D6; --bad:#B93228; --bad-bg:#F9E2DF; --info:#335FA8; --info-bg:#E4ECF8;
+  --shadow:0 1px 2px rgba(27,20,38,.06),0 4px 16px rgba(27,20,38,.05);
+  --sans:"DM Sans",ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --mono:"DM Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --ground:#131018; --surface:#1C1823; --sunk:#241F2D; --ink:#EEEAF4; --muted:#ABA3B9; --faint:#7B7489; --line:#302A3A;
+    --accent:#B690F2; --accent-ink:#1B1426; --actual:#C9AEF7; --forecast:#7148B8; --remain:#2A2434;
+    --good:#5CCB94; --good-bg:#16301F; --warn:#E6B44A; --warn-bg:#33280F; --bad:#F07F74; --bad-bg:#3A1A18; --info:#86A9EA; --info-bg:#172338;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 4px 16px rgba(0,0,0,.25);
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --ground:#131018; --surface:#1C1823; --sunk:#241F2D; --ink:#EEEAF4; --muted:#ABA3B9; --faint:#7B7489; --line:#302A3A;
+  --accent:#B690F2; --accent-ink:#1B1426; --actual:#C9AEF7; --forecast:#7148B8; --remain:#2A2434;
+  --good:#5CCB94; --good-bg:#16301F; --warn:#E6B44A; --warn-bg:#33280F; --bad:#F07F74; --bad-bg:#3A1A18; --info:#86A9EA; --info-bg:#172338;
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 4px 16px rgba(0,0,0,.25);
+}
+*{box-sizing:border-box}
+body{background:var(--ground);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1280px;margin:0 auto;padding-inline:20px;padding-block:20px 48px}
+h1,h2,h3{text-wrap:balance;margin:0}
+.num,.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.eyebrow{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:600}
+a{color:var(--accent)}
+button{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+.top{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:12px 24px;margin-bottom:18px}
+.top h1{font-size:26px;font-weight:700;letter-spacing:-.01em}
+.top .sub{color:var(--muted);margin-top:4px;font-size:13px}
+.top .sub b{color:var(--ink);font-weight:600}
+.fresh{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12.5px;color:var(--muted);background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:7px 8px 7px 12px}
+.fresh .dot{width:8px;height:8px;border-radius:50%;background:var(--faint);flex:none}
+.fresh.live .dot{background:var(--good)} .fresh.err .dot{background:var(--bad)} .fresh.load .dot{background:var(--warn);animation:pulse 1s infinite alternate}
+@keyframes pulse{from{opacity:.3}to{opacity:1}}
+.fresh b{color:var(--ink);font-weight:600}
+.fresh button{border:1px solid var(--accent);background:var(--accent);color:var(--accent-ink);border-radius:7px;padding:5px 10px;cursor:pointer;font-weight:600;font-size:12.5px}
+.fresh button:disabled{opacity:.5;cursor:default}
+.rail{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;display:flex;flex-wrap:wrap;gap:12px 20px;align-items:center;box-shadow:var(--shadow);margin-bottom:18px}
+.qgroup{display:flex;gap:14px;flex-wrap:wrap;align-items:center}
+.fy{display:flex;align-items:center;gap:4px}
+.fy .lbl{font-size:11px;color:var(--faint);font-weight:600;margin-right:2px;letter-spacing:.04em}
+.qbtn{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:6px 10px;cursor:pointer;font-weight:600;font-size:13px;position:relative;min-width:44px}
+.qbtn:hover{border-color:var(--accent)}
+.qbtn[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.qbtn .now{position:absolute;top:-7px;right:-6px;background:var(--good);color:#fff;font-size:9px;padding:1px 4px;border-radius:6px;letter-spacing:.04em}
+.modebox{display:flex;align-items:center;gap:8px;margin-left:auto;flex-wrap:wrap}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg button{border:0;background:transparent;padding:6px 10px;cursor:pointer;font-size:12.5px;color:var(--muted);font-weight:500}
+.seg button[aria-pressed="true"]{background:var(--sunk);color:var(--ink);font-weight:600}
+.seglbl{font-size:12px;color:var(--muted)}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,460px),1fr));gap:16px}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px 18px;box-shadow:var(--shadow)}
+.env-h{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap}
+.env-h h2{font-size:15px;font-weight:700}
+.allow{color:var(--muted);font-size:12.5px}
+.big{display:flex;align-items:baseline;gap:10px;margin:10px 0 10px;flex-wrap:wrap}
+.big .v{font-size:32px;font-weight:500;letter-spacing:-.02em}
+.big .of{color:var(--muted);font-size:13px}
+.pill{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:700;padding:2px 8px;border-radius:999px;letter-spacing:.02em;white-space:nowrap}
+.pill::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+.s-green{color:var(--good);background:var(--good-bg)} .s-yellow{color:var(--warn);background:var(--warn-bg)}
+.s-red,.s-over{color:var(--bad);background:var(--bad-bg)} .s-none{color:var(--muted);background:var(--sunk)}
+.bar{position:relative;height:18px;border-radius:5px;background:var(--remain);overflow:hidden;display:flex}
+.bar span{height:100%}
+.bar .a{background:var(--actual)}
+.bar .f{background:repeating-linear-gradient(135deg,var(--forecast) 0 6px,color-mix(in srgb,var(--forecast) 60%,var(--surface)) 6px 10px)}
+.ticks{position:relative;height:16px;margin-top:3px;font-size:10.5px;color:var(--faint)}
+.ticks i{position:absolute;top:0;transform:translateX(-50%);font-style:normal}
+.ticks i::before{content:"";position:absolute;left:50%;top:-21px;height:18px;border-left:1px dashed var(--faint);opacity:.6}
+.kv{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:8px}
+.kv div{min-width:0}
+.kv .k{font-size:11.5px;color:var(--muted);display:flex;align-items:center;gap:5px}
+.kv .k .sw{width:9px;height:9px;border-radius:2px;display:inline-block}
+.kv .v{font-family:var(--mono);font-size:15px;margin-top:2px}
+.kv .n{font-size:11.5px;color:var(--faint)}
+.kv .click{display:block;width:100%;font:inherit;color:inherit;cursor:pointer;border-radius:6px;padding:2px 4px;margin:-2px -4px;border:0;background:transparent;text-align:left}
+.kv .click:hover{background:var(--sunk)}
+.kv .click .v{text-decoration:underline dotted var(--faint);text-underline-offset:3px}
+@media (max-width:520px){.kv{grid-template-columns:repeat(2,1fr)}}
+.note{font-size:12.5px;color:var(--muted);margin-top:10px;padding-top:10px;border-top:1px dashed var(--line)}
+.note b{color:var(--ink)}
+.sec{margin-top:26px}
+.sec-h{display:flex;justify-content:space-between;align-items:flex-end;gap:10px 16px;flex-wrap:wrap;margin-bottom:10px}
+.sec-h h2{font-size:18px;font-weight:700}
+.sec-h p{margin:3px 0 0;color:var(--muted);font-size:13px;max-width:78ch}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-bottom:12px}
+.tile{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 12px;cursor:pointer;text-align:left;display:flex;flex-direction:column;gap:2px;border-left-width:4px}
+.tile[aria-pressed="true"]{outline:2px solid var(--accent);outline-offset:-1px}
+.tile .t{font-size:12px;color:var(--muted);font-weight:600}
+.tile .c{font-family:var(--mono);font-size:19px}
+.tile .d{font-size:11.5px;color:var(--faint)}
+.t-all{border-left-color:var(--accent)} .t-closed{border-left-color:var(--good)} .t-open{border-left-color:var(--info)} .t-stale{border-left-color:var(--bad)} .t-credit{border-left-color:var(--warn)}
+.filters{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px}
+.filters select,.filters input[type=search]{font:inherit;font-size:13px;padding:6px 9px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink);max-width:100%}
+.filters input[type=search]{min-width:0;flex:1 1 180px;max-width:280px}
+.filters .count{margin-left:auto;color:var(--muted);font-size:12.5px}
+.filters select:disabled{opacity:.45;cursor:not-allowed}
+.ext{margin-left:6px;font-size:10.5px;font-weight:700;letter-spacing:.03em;color:var(--info);background:var(--info-bg);padding:1px 6px;border-radius:5px;vertical-align:1px}
+.lk-go{border:1px solid var(--accent);background:var(--accent);color:var(--accent-ink);border-radius:6px;padding:3px 10px;cursor:pointer;font-weight:600;font-size:12px}
+.lk-go:disabled{opacity:.5;cursor:default}
+.recon .lk-go{margin-left:auto;border-color:var(--accent);background:var(--accent);color:var(--accent-ink)}
+.recon #recon-clear{margin-left:0}
+.empty .lk-go{margin-top:10px;padding:6px 12px;font-size:13px}
+.chk{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--ink);cursor:pointer}
+.chk input{accent-color:var(--accent);width:15px;height:15px}
+.tbl-wrap{background:var(--surface);border:1px solid var(--line);border-radius:12px;overflow-x:auto;box-shadow:var(--shadow)}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th,td{padding:8px 10px;text-align:left;white-space:nowrap;border-bottom:1px solid var(--line)}
+th{font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);font-weight:600;background:var(--sunk);user-select:none}
+#otable thead th{cursor:pointer}
+th.r,td.r{text-align:right}
+th .ar{opacity:.5;margin-left:3px}
+tbody tr.o,#ptable tbody tr{cursor:pointer}
+tbody tr.o:hover td,#ptable tbody tr:hover td{background:color-mix(in srgb,var(--accent) 6%,var(--surface))}
+tbody tr.o td:first-child{font-weight:600}
+#ptable tr.first td{border-top:2px solid var(--line)}
+#ptable td.ot{font-weight:700}
+.caret{display:inline-block;width:10px;color:var(--faint);transition:transform .15s}
+tr.open-row .caret{transform:rotate(90deg)}
+tr.detail td{background:var(--sunk);padding:0}
+tr.detail:hover td{background:var(--sunk)}
+.lines{padding:10px 14px 14px 30px;cursor:default}
+.lines table{font-size:12.5px;background:var(--surface);border:1px solid var(--line);border-radius:8px;overflow:hidden;width:auto;min-width:60%}
+.lines th{background:var(--surface)}
+.lines .meta{display:flex;gap:18px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-bottom:8px}
+.lines .meta b{color:var(--ink);font-weight:600}
+.st{font-size:11.5px;font-weight:700;padding:2px 7px;border-radius:6px;white-space:nowrap}
+.st-closed{color:var(--good);background:var(--good-bg)} .st-open{color:var(--info);background:var(--info-bg)}
+.st-stale{color:var(--bad);background:var(--bad-bg)} .st-credit{color:var(--warn);background:var(--warn-bg)}
+.ls-ok{color:var(--good)} .ls-open{color:var(--info)} .ls-late{color:var(--bad)} .ls-ret{color:var(--warn)}
+.prog{display:inline-block;width:46px;height:5px;border-radius:3px;background:var(--remain);vertical-align:middle;margin-right:6px;overflow:hidden}
+.prog i{display:block;height:100%;background:var(--good)}
+.cat{font-size:11.5px;font-weight:600;color:var(--muted)}
+tfoot td{font-weight:700;background:var(--sunk);border-bottom:0}
+.empty{padding:28px;text-align:center;color:var(--muted);white-space:normal}
+.sub-muted{color:var(--faint);font-size:11.5px}
+.late{color:var(--bad);font-weight:600}
+.chart svg{width:100%;height:auto;display:block}
+.chart .ttl{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;gap:8px;flex-wrap:wrap}
+.chart .ttl h3{font-size:14px}
+.legend{display:flex;gap:14px;font-size:11.5px;color:var(--muted);flex-wrap:wrap}
+.legend span{display:inline-flex;align-items:center;gap:5px}
+.legend i{width:10px;height:10px;border-radius:2px;display:inline-block}
+.watch{display:grid;gap:10px}
+.w{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 14px;display:grid;grid-template-columns:auto 1fr auto;gap:4px 12px;align-items:start}
+.w .sev{grid-row:span 2;width:6px;align-self:stretch;border-radius:3px}
+.w h3{font-size:14px;font-weight:700}
+.w p{margin:0;color:var(--muted);font-size:13px;grid-column:2 / 4;max-width:110ch}
+.w p b{color:var(--ink)}
+.w .amt{font-family:var(--mono);font-size:15px;text-align:right;white-space:nowrap}
+.sev-bad{background:var(--bad)} .sev-warn{background:var(--warn)} .sev-info{background:var(--info)}
+details.defs{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 16px;margin-top:26px}
+details.defs summary{cursor:pointer;font-weight:700;font-size:15px}
+.defs-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:6px 28px;margin-top:10px}
+.defs-grid p{margin:6px 0;color:var(--muted);font-size:13px;max-width:65ch}
+.defs-grid p b{color:var(--ink)}
+.foot{margin-top:18px;font-size:12px;color:var(--faint)}
+.fq{margin-bottom:16px;padding:14px 16px}
+.fq-h{display:flex;align-items:baseline;gap:6px 14px;flex-wrap:wrap;margin-bottom:10px}
+.fq-h h2{font-size:15px;font-weight:700}
+.hint{font-size:12.5px;color:var(--muted)}
+.fq-wrap{overflow-x:auto}
+#qtable{font-size:12.5px;min-width:760px}
+#qtable th,#qtable td{padding:4px 4px;border-bottom:0;text-align:center}
+#qtable th{background:transparent;font-size:10.5px}
+#qtable th.fyh{text-align:left;color:var(--faint);padding-left:8px}
+#qtable th.cur{color:var(--good)}
+#qtable td.rl{text-align:left;font-weight:700;font-size:12.5px;padding-right:10px;white-space:nowrap}
+#qtable td.rl span{display:block;font-weight:400;font-size:11px;color:var(--faint)}
+.qc{width:100%;border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:6px 6px 5px;cursor:pointer;text-align:right;display:flex;flex-direction:column;gap:1px;border-top:3px solid var(--line)}
+.qc:hover{border-color:var(--accent)}
+.qc .tv{font-family:var(--mono);font-size:13px;color:var(--ink);font-weight:500}
+.qc .sv{font-family:var(--mono);font-size:10.5px;color:var(--faint)}
+.qc.sel{background:var(--sunk);outline:2px solid var(--accent);outline-offset:-1px}
+.qc.g{border-top-color:var(--good)} .qc.y{border-top-color:var(--warn)} .qc.r{border-top-color:var(--bad)} .qc.n{border-top-color:var(--line)}
+.qc.tot{background:var(--sunk)}
+.recon{font-size:13px;margin:-2px 0 12px;padding:9px 12px;border-radius:8px;background:var(--sunk);color:var(--muted);display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.recon b{color:var(--ink)}
+.recon .ok{color:var(--good);font-weight:700}
+.recon button{border:1px solid var(--line);background:var(--surface);border-radius:6px;padding:2px 8px;cursor:pointer;font-size:12px;margin-left:auto}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div>
+      <div class="eyebrow">Global Lab Operations · Depts 7030 · 7110 · 7120 · 7130 · 7140</div>
+      <h1>Global Lab Budget Tracker</h1>
+      <div class="sub">ICO spend against the quarterly allowance. <b>CapEx $300K</b> and <b>OpEx $100K</b>, separate envelopes, never combined.</div>
+    </div>
+    <div class="fresh" id="fresh" role="status"><span class="dot"></span><span id="fresh-t">Snapshot</span><button id="fresh-b" type="button">Refresh from Snowflake</button></div>
+  </header>
+
+  <nav class="rail" aria-label="Choose a fiscal quarter">
+    <div class="qgroup" id="qgroup"></div>
+    <div class="modebox">
+      <span class="seglbl">Show orders by</span>
+      <div class="seg" role="group" aria-label="Group orders by">
+        <button id="m-budget" aria-pressed="true" title="The quarter the order hits the budget">Budget quarter</button>
+        <button id="m-placed" aria-pressed="false" title="The quarter the order was placed">Order placed</button>
+      </div>
+    </div>
+  </nav>
+
+  <section class="panel fq" aria-labelledby="fq-title">
+    <div class="fq-h"><h2 id="fq-title">Cost forecast by quarter</h2><span class="hint">Click any number to list every order behind it, open and closed.</span></div>
+    <div class="fq-wrap"><table id="qtable"></table></div>
+  </section>
+
+  <section class="grid2" id="envelopes" aria-label="Allowance envelopes"></section>
+
+  <section class="sec" id="orders-sec">
+    <div class="sec-h"><div><h2 id="orders-title">Orders</h2><p id="orders-sub"></p></div></div>
+    <div class="tiles" id="tiles"></div>
+    <div class="recon" id="recon"></div>
+    <div class="filters">
+      <select id="f-cat" aria-label="Envelope"><option value="">CapEx + OpEx</option><option>CapEx</option><option>OpEx</option></select>
+      <select id="f-dept" aria-label="Department"><option value="">All departments</option></select>
+      <input id="f-q" type="search" placeholder="Search SO or part, all quarters" aria-label="Search any SO or part number across all quarters" autocomplete="off">
+      <span class="count" id="f-count"></span>
+    </div>
+    <div class="tbl-wrap">
+      <table id="otable">
+        <thead><tr>
+          <th data-k="so">SO</th><th data-k="rq" title="The fiscal quarter this order's cost lands in">Budget qtr</th><th data-k="status">Status</th><th data-k="dept">Dept</th><th data-k="cat">Envelope</th>
+          <th data-k="prog">Lines shipped</th><th data-k="shipped" class="r">Shipped value</th><th data-k="out" class="r">Not shipped</th>
+          <th data-k="hit" class="r">Order total</th><th data-k="od">Ordered</th><th data-k="ss" title="Latest scheduled ship date of the lines still to ship. This is the planning date until an actual ship date posts.">Sched ship</th><th data-k="key">Lands on</th>
+        </tr></thead>
+        <tbody></tbody>
+        <tfoot></tfoot>
+      </table>
+    </div>
+  </section>
+
+  <section class="sec" id="parts-sec">
+    <div class="sec-h"><div><h2 id="parts-title">Parts still to ship</h2><p>Every line that hasn't shipped, with the part's own cost and the full cost of its order. The whole order lands when its last part ships, so if one part slips, the order total moves with it.</p></div></div>
+    <div class="filters">
+      <div class="seg" role="group" aria-label="Which orders">
+        <button id="p-sel" aria-pressed="true">Selected quarter</button>
+        <button id="p-all" aria-pressed="false">All open orders</button>
+      </div>
+      <label class="chk"><input type="checkbox" id="p-late"> Past due only</label>
+      <span class="count" id="p-count"></span>
+    </div>
+    <div class="recon" id="p-recon"></div>
+    <div class="tbl-wrap">
+      <table id="ptable">
+        <thead><tr><th>SO</th><th>Part</th><th>Line status</th><th class="r">Qty owed</th><th class="r">Part cost</th><th class="r">Order total</th><th>Scheduled</th><th>Days late</th><th>Budget qtr</th><th>Dept</th></tr></thead>
+        <tbody></tbody><tfoot></tfoot>
+      </table>
+    </div>
+  </section>
+
+  <section class="sec">
+    <div class="sec-h"><div><h2>Quarter by quarter</h2><p>Committed spend per envelope. Solid is closed orders, hatched is open orders carried at full value. The dashed red line is the allowance. Click a bar to list the orders behind it.</p></div></div>
+    <div class="grid2">
+      <div class="panel chart" id="ch-CapEx"></div>
+      <div class="panel chart" id="ch-OpEx"></div>
+    </div>
+  </section>
+
+  <section class="sec">
+    <div class="sec-h"><div><h2 id="dept-title">By department</h2><p>Budget-quarter view, so these always sum to the envelopes above.</p></div></div>
+    <div class="tbl-wrap"><table id="dtable"><thead></thead><tbody></tbody><tfoot></tfoot></table></div>
+  </section>
+
+  <section class="sec">
+    <div class="sec-h"><div><h2>Watch list</h2><p id="watch-sub">What could move the numbers, and what needs a call with Finance.</p></div></div>
+    <div class="watch" id="watch"></div>
+  </section>
+
+  <section class="sec">
+    <div class="sec-h"><div><h2 id="tp-title">Third-party requisitions</h2><p>Not in Committed or Remaining. A leading indicator of allowance that lands later through the GL. Shown in native currency, since roughly half the lines carry currency code 0.</p></div></div>
+    <div class="tiles" id="tp-tiles"></div>
+    <div class="tbl-wrap"><table id="tptable"><thead><tr><th>Vendor</th><th>Requisition</th><th>Requester</th><th>Dept</th><th>Account</th><th>Envelope</th><th class="r">Amount</th><th>Ccy</th><th>Approved</th></tr></thead><tbody></tbody></table></div>
+  </section>
+
+  <details class="defs">
+    <summary>How the numbers are built</summary>
+    <div class="defs-grid">
+      <div>
+        <p><b>The rule.</b> An order's full cost sits in the fiscal quarter its last part ships. Costs are never split across quarters.</p>
+        <p><b>Sched ship</b> in the orders list is the latest scheduled ship date of the lines still to ship, the planning date until an actual ship date posts. Greyed when every line has shipped.</p>
+        <p><b>Shipped lines</b> use their actual ship date. <b>Unshipped lines</b> use their scheduled ship date. If that date has passed or is blank, the line counts as shipping today, so a late order stays in the current quarter and rolls forward until it actually ships. The order lands on the latest of its line dates.</p>
+        <p><b>Credits.</b> Return lines land in the quarter they're received, or the quarter they were posted until then.</p>
+      </div>
+      <div>
+        <p><b>Cost.</b> Item standard cost × ordered quantity. Line Amount USD is $0 on internal orders, so it isn't used.</p>
+        <p><b>Envelope.</b> GL account prefix: 2xxxx is CapEx, 8xxxx is OpEx. Finance's underlying test is a new asset above $5,000, so some orders get reclassed later.</p>
+        <p><b>Scope.</b> Lines with a 5-digit account, not cancelled, expense dept starting 7030, 7110, 7120, 7130 or 7140. No sales-channel filter, since it's blank after the Fusion cutover.</p>
+        <p><b>Old-system orders.</b> Open lines still sitting on old Oracle EBS orders (5017xxx) are left out. At the Fusion cutover those lines were rebooked or cancelled on a Fusion order, so counting them again would double the cost. Lines that actually shipped on an EBS order stay in, since that history only exists there.</p>
+      </div>
+      <div>
+        <p><b>Status.</b> Green below 70% of the allowance, Yellow 70 to 90, Red 90 to 100, Over above 100.</p>
+        <p><b>Budget quarter vs order placed.</b> Budget quarter is what hits the allowance. Order placed shows what was raised that quarter, wherever it lands.</p>
+        <p><b>Not included.</b> GL actuals (row access policy on EDNA_GL_TRANSACTION), third-party amortisation, and asset grouping by project code.</p>
+        <p><b>Order search.</b> Typing an SO or part number in the orders list searches every order loaded on this page, from any quarter, open or closed, and pauses the quarter, envelope and department filters. Clearing the box, or picking a quarter, brings the quarter view back. For an order that is not loaded here, such as an older quarter, press Enter or use Search Snowflake to pull it live. Those rows are tagged Snowflake and never change a total on this page.</p>
+      </div>
+    </div>
+  </details>
+  <div class="foot" id="foot"></div>
+</div>
+
+<script src="data.js"></script>
+<script>
+// data.js (rebuilt from Snowflake each Wednesday morning) sets window.LAB_DATA={date,O,TP}.
+const SNAP_DATE=(window.LAB_DATA&&window.LAB_DATA.date)||'2026-09-25';
+const ALLOW={CapEx:300000,OpEx:100000};
+const DEPTS={'7030':'Service Ops · Salem','7110':'LATAM TAC','7120':'Asia TAC · Chennai','7130':'EMEA TAC · Reading','7140':'Americas TAC'};
+const HIST={'FY25Q1':{CapEx:[4,186460.67,0],OpEx:[12,21822.29,0]},'FY25Q2':{CapEx:[7,225218.69,0],OpEx:[18,30105.07,0]},'FY25Q3':{CapEx:[6,182503.40,0],OpEx:[10,24595.42,0]},'FY25Q4':{CapEx:[18,226397.90,0],OpEx:[9,6546.67,0]}};
+// No embedded fallback data. Every number comes from EDNA in Snowflake: data.js (rebuilt from Snowflake each Wednesday) or a live refresh.
+const O=[], TP=[];
+
+/* ---------- helpers ---------- */
+const $=s=>document.querySelector(s);
+const fyq=d=>{const y=+d.slice(0,4),m=+d.slice(5,7);const fy=m>=7?y+1:y;const q=m<=3?3:m<=6?4:m<=9?1:2;return 'FY'+String(fy).slice(2)+'Q'+q;};
+const qKey=q=>+q.slice(2,4)*10+ +q.slice(5);
+const qLabel=q=>q.slice(0,4)+' '+q.slice(4);
+const qFY=q=>2000+ +q.slice(2,4);
+const qEnd=q=>{const fy=qFY(q),n=+q.slice(5);return [null,fy-1+'-09-30',fy-1+'-12-31',fy+'-03-31',fy+'-06-30'][n];};
+const nextQ=q=>{const n=+q.slice(5),fy=qFY(q);return n===4?'FY'+String(fy+1).slice(2)+'Q1':'FY'+q.slice(2,4)+'Q'+(n+1);};
+const money=(v,dec)=>{const f=dec?100:1;const n=Math.round(v*f)/f;const s=Math.abs(n).toLocaleString('en-US',{minimumFractionDigits:dec?2:0,maximumFractionDigits:dec?2:0});return (n<0?'−$':'$')+s;};
+const kfmt=v=>{const a=Math.abs(v);const s=a>=1e6?(a/1e6).toFixed(2)+'M':a>=1e3?(a/1e3).toFixed(a>=1e5?0:1)+'K':a.toFixed(0);return (v<0?'−$':'$')+s;};
+const MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const fmtD=d=>{if(!d)return '—';const [y,m,dd]=d.split('-');return dd+' '+MON[+m-1]+' '+y.slice(2);};
+const daysBetween=(a,b)=>Math.round((Date.parse(b)-Date.parse(a))/864e5);
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const localToday=()=>{const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');};
+const LSLABEL={CLOSED:'Shipped',AWAITING_SHIPPING:'Awaiting shipping',AWAIT_SHIP:'Awaiting shipping',EN_SCHEDULED:'Scheduled',BOOKED:'Booked',AWAITING_FULFILLMENT:'Awaiting fulfilment',AWAIT_RECEIVING:'Awaiting receipt'};
+const lsLabel=l=>l.ret?(l.shipped?'Return received':'Return · awaiting receipt'):(l.shipped?'Shipped':(LSLABEL[l.ls]||String(l.ls||'Open').replace(/_/g,' ').toLowerCase()));
+
+/* ---------- model: the budget rule lives here ---------- */
+let D={today:SNAP_DATE,source:'snapshot',at:null,orders:[],tp:[],QUARTERS:[],TREND:[],CURQ:''};
+
+function makeOrder(rows,today){
+  const f=rows[0];
+  const lines=rows.map(r=>{
+    const shipped=r.ret?!!(r.rcd||r.ls==='CLOSED'):!!r.asd;
+    let eff,past=false,late=null;
+    if(r.ret) eff=r.rcd||r.asd||r.od;                       // credits: quarter received, else quarter posted
+    else if(shipped) eff=r.asd;                              // shipped: actual ship date
+    else if(r.ssd&&r.ssd>=today) eff=r.ssd;                  // not shipped: scheduled ship date
+    else {eff=today;past=true;late=r.ssd?daysBetween(r.ssd,today):null;} // past due or blank: rolls forward to today
+    return {...r,shipped,eff,past,late};
+  }).sort((a,b)=>(a.shipped===b.shipped?0:a.shipped?-1:1)||String(a.eff).localeCompare(String(b.eff))||a.pn.localeCompare(b.pn));
+  const hit=lines.reduce((s,l)=>s+l.c,0);
+  const shippedV=lines.filter(l=>l.shipped).reduce((s,l)=>s+l.c,0);
+  const nShip=lines.filter(l=>l.shipped).length, nOpen=lines.length-nShip;
+  const rd=lines.reduce((m,l)=>l.eff>m?l.eff:m,'');          // the order lands on its latest line date
+  const pastL=lines.filter(l=>l.past);
+  const allRet=lines.every(l=>l.ret);
+  const status=(hit<0||allRet)?'credit':nOpen===0?'closed':pastL.length?'stale':'open';
+  const acct=rows.reduce((m,r)=>r.acct>m?r.acct:m,'');
+  const od=rows.reduce((m,r)=>!m||r.od<m?r.od:m,'');
+  const la=lines.filter(l=>l.shipped).reduce((m,l)=>(l.asd||l.rcd||'')>m?(l.asd||l.rcd):m,'');
+  const os=lines.filter(l=>!l.shipped&&!l.ret&&l.ssd).reduce((m,l)=>l.ssd>m?l.ssd:m,'');
+  const lates=pastL.map(l=>l.late).filter(x=>x!==null);
+  return {so:f.so,dept:f.dept,geo:f.geo,shipto:f.shipto,acct,cat:acct[0]==='2'?'CapEx':'OpEx',od,la,os,rd,lines,hit,shipped:shippedV,out:hit-shippedV,
+    nShip,nLines:lines.length,nOpen,status,rq:fyq(rd),pq:fyq(od),spend:nOpen===0?'A':'F',
+    daysLate:lates.length?Math.max(...lates):null,undated:pastL.some(l=>l.late===null),key:rd,
+    ss:os||lines.filter(l=>!l.ret&&l.ssd).reduce((m,l)=>l.ssd>m?l.ssd:m,'')};
+}
+function build(rows,tpRows,today){
+  const by=new Map();rows.forEach(r=>{if(!by.has(r.so))by.set(r.so,[]);by.get(r.so).push(r);});
+  const orders=[...by.values()].map(g=>makeOrder(g,today));
+  const CURQ=fyq(today), curFY=qFY(CURQ);
+  const maxFY=Math.max(curFY,...orders.map(o=>qFY(o.rq)));
+  const QUARTERS=[];for(let fy=curFY-1;fy<=maxFY;fy++)for(let q=1;q<=4;q++)QUARTERS.push('FY'+String(fy).slice(2)+'Q'+q);
+  const TREND=[...Object.keys(HIST).filter(q=>qFY(q)===curFY-2),...QUARTERS];
+  const tp=tpRows.map(r=>({...r,fq:fyq(r.date)}));
+  D={...D,today,orders,tp,QUARTERS,TREND,CURQ};
+}
+function snapshotRows(){
+  const ls={S:'CLOSED',A:'AWAIT_SHIP',C:'EN_SCHEDULED',R:'AWAIT_RECEIVING'};const out=[];
+  ((window.LAB_DATA&&window.LAB_DATA.O)||O).forEach(r=>{const [so,dept,geo,shipto,acct,od]=r;r[9].forEach(l=>out.push({so,dept,geo,shipto,acct,od,pn:l[0],ls:ls[l[1]],q:l[2],sq:l[3],c:l[4],asd:l[5],ssd:l[6],rcd:'',ret:l[1]==='R'||l[2]<0}));});
+  return out;
+}
+const snapshotTP=()=>((window.LAB_DATA&&window.LAB_DATA.TP)||TP).map(r=>({v:r[0],r:r[1],rq:r[2],d:r[3],a:r[4],ad:r[5],amt:r[6],ccy:r[7],date:r[8],na:!!r[9]}));
+
+function envelope(q,cat){
+  if(HIST[q]){const h=HIST[q][cat];return {n:h[0],act:h[1],fc:h[2],tot:h[1]+h[2],nA:h[0],nF:0};}
+  const os=D.orders.filter(o=>o.rq===q&&o.cat===cat);
+  const A=os.filter(o=>o.spend==='A'),F=os.filter(o=>o.spend==='F');
+  const act=A.reduce((s,o)=>s+o.hit,0),fc=F.reduce((s,o)=>s+o.hit,0);
+  return {n:os.length,act,fc,tot:act+fc,nA:A.length,nF:F.length};
+}
+const statusOf=(tot,allow)=>tot>allow?['Over','s-over']:tot>allow*.9?['Red','s-red']:tot>allow*.7?['Yellow','s-yellow']:Math.abs(tot)<0.005?['No spend','s-none']:['Green','s-green'];
+
+/* ---------- live data from Snowflake (viewer's own connector) ---------- */
+const SERVER='Snowflake', TOOL='sales-sql-executor';
+const DEPT_IN="('7030','7110','7120','7130','7140')";
+const ORDER_SQL=start=>`WITH l AS (SELECT "Order Number" SO, LEFT("Expense Dept",4) DEPT, TRIM("Ship To Site Region") GEO, TRIM(REPLACE("Ship To Party Name",CHR(9),' ')) SHIPTO, "Account" ACCT, TO_CHAR("Order Date") OD, "Ordered Item" PN, "Line Status" LS, "Ordered Quantity" Q, COALESCE("Shipped Quantity",0) SQ, ROUND(COALESCE("Item Standard Cost",0)*"Ordered Quantity",2) C, TO_CHAR("Actual Ship Date") ASD, TO_CHAR("Schedule Ship Date") SSD, TO_CHAR("Receipt Date") RCD, IFF("Line Type" ILIKE '%RETURN%' OR "Ordered Quantity"<0,1,0) RET FROM EDNA.CONS_INSIGHTS_MART.EDNA_ORDER_MANAGEMENT_REPORT WHERE "Account" RLIKE '^[0-9]{5}$' AND "Line Status" <> 'CANCELED' AND LEFT("Expense Dept",4) IN ${DEPT_IN} AND NOT (COALESCE("Source System Code",'')='ORACLE_EBS' AND "Actual Ship Date" IS NULL AND "Receipt Date" IS NULL)) SELECT * FROM l WHERE SO IN (SELECT SO FROM l GROUP BY SO HAVING MAX(COALESCE(ASD,RCD,SSD,OD)) >= '${start}' OR SUM(IFF(ASD IS NULL AND RCD IS NULL,1,0))>0) ORDER BY SO`;
+const TP_SQL=start=>`SELECT "Party Name" V, "Requisition Number" R, "Requester Name" RQ, LEFT("EBS GL Dept Code",4) D, "EBS GL Acct Code" A, "EBS GL Acct Desc" AD, "Amount" AMT, COALESCE(NULLIF("Invoice Currency Code",'0'),'Code 0') CCY, TO_CHAR(COALESCE("PR Approved Date","Creation Date")::DATE) DT, IFF("PR Approved Date" IS NULL,1,0) NA FROM EDNA.CONS_INSIGHTS_MART.EDNA_PROCUREMENT WHERE LEFT("EBS GL Dept Code",4) IN ${DEPT_IN} AND UPPER("Party Name") NOT LIKE '%EXTREME NETWORKS%' AND "Amount" IS NOT NULL AND "EBS GL Acct Code" IN ('20050','20020','20040','87100','87120','87140','87160','87165','89150','89170','89180','89260','89270') AND COALESCE("PR Approved Date","Creation Date") >= '${start}' ORDER BY DT DESC`;
+
+function parseSf(p){
+  if(p&&typeof p==='object'&&Array.isArray(p.content)){const t=p.content.filter(c=>c.type==='text').map(c=>c.text).join('');p=t;}
+  if(p&&typeof p==='object'&&p.structuredContent)p=p.structuredContent;
+  if(typeof p==='string')p=JSON.parse(p);
+  const rs=p.result_set||p.resultSet||p;
+  const names=(rs.resultSetMetaData||rs.metadata).rowType.map(t=>t.name.toUpperCase());
+  return rs.data.map(row=>Object.fromEntries(names.map((n,i)=>[n,row[i]])));
+}
+async function runSql(sql){
+  const mcp=await window.claude?.use?.('mcp');
+  if(!mcp) throw {code:'unavailable'};
+  let r;
+  if(typeof mcp.callTool==='function'){r=await mcp.callTool(SERVER,TOOL,{sql});r=(r&&typeof r==='object'&&'payload' in r)?r.payload:r;}
+  else{const s=await mcp.server(SERVER);r=await s[TOOL]({sql});}
+  return parseSf(r);
+}
+const s=v=>v==null?'':String(v);
+async function refresh(){
+  const btn=$('#fresh-b');btn.disabled=true;setFresh('load');
+  try{
+    const today=localToday();const start=(qFY(fyq(today))-2)+'-07-01';
+    const lr=await runSql(ORDER_SQL(start));
+    const tr=await runSql(TP_SQL(start));
+    const rows=lr.map(r=>({so:s(r.SO),dept:s(r.DEPT),geo:s(r.GEO),shipto:s(r.SHIPTO),acct:s(r.ACCT),od:s(r.OD).slice(0,10),pn:s(r.PN),ls:s(r.LS),q:+r.Q,sq:+r.SQ,c:+r.C,asd:s(r.ASD).slice(0,10),ssd:s(r.SSD).slice(0,10),rcd:s(r.RCD).slice(0,10),ret:+r.RET===1}));
+    const tp=tr.map(r=>({v:s(r.V),r:s(r.R),rq:s(r.RQ),d:s(r.D),a:s(r.A),ad:s(r.AD),amt:+r.AMT,ccy:s(r.CCY),date:s(r.DT).slice(0,10),na:+r.NA===1}));
+    if(!rows.length) throw {code:'empty'};
+    build(rows,tp,today);D.source='live';D.at=new Date();
+    try{localStorage.setItem('glbt-live','1')}catch(e){}
+    if(!D.QUARTERS.includes(S.q))S.q=D.CURQ;
+    renderAll();setFresh('live');
+  }catch(e){setFresh('err',e);}
+  finally{btn.disabled=false;}
+}
+function setFresh(state,err){
+  const el=$('#fresh'),t=$('#fresh-t'),b=$('#fresh-b');el.className='fresh'+(state==='live'?' live':state==='err'?' err':state==='load'?' load':'');
+  if(state==='load'){t.innerHTML='Pulling from Snowflake…';return;}
+  if(state==='live'){t.innerHTML=`<b>Live</b> · pulled ${D.at.toLocaleString('en-US',{day:'numeric',month:'short',hour:'numeric',minute:'2-digit'})} · ${D.orders.length} orders`;b.textContent='Refresh';return;}
+  const snap=`<b>Data as of ${fmtD(SNAP_DATE)}</b> · from Snowflake, refreshes Wednesdays 7am`;
+  if(state==='err'){
+    const c=err&&err.code;
+    if(c==='blocked_by_policy'){t.innerHTML=snap+' · your organization\'s settings don\'t let pages use connectors yet, so this updates when Claude republishes it';b.hidden=true;return;}
+    t.innerHTML=snap+' · '+(c==='unavailable'?'live refresh isn\'t available in this view':c==='empty'?'Snowflake returned no rows, kept the last data':'couldn\'t reach Snowflake'+(c?' ('+esc(c)+')':''));
+    b.textContent='Try again';return;
+  }
+  t.innerHTML=snap;b.textContent='Refresh from Snowflake';
+}
+$('#fresh-b').onclick=refresh;
+
+/* ---------- live lookup: orders that are not loaded on the page, pulled from Snowflake on request ---------- */
+const LK_MAX=25, LK_OK=/^[A-Z0-9][A-Z0-9.\-]{2,39}$/;
+// Same columns, scope and filters as ORDER_SQL (keep the two in step), narrowed to one SO or part number. The term is
+// validated against LK_OK (letters, digits, dot, dash) before it reaches this string, so nothing else can be injected.
+const LOOKUP_SQL=t=>`WITH l AS (SELECT "Order Number" SO, LEFT("Expense Dept",4) DEPT, TRIM("Ship To Site Region") GEO, TRIM(REPLACE("Ship To Party Name",CHR(9),' ')) SHIPTO, "Account" ACCT, TO_CHAR("Order Date") OD, "Ordered Item" PN, "Line Status" LS, "Ordered Quantity" Q, COALESCE("Shipped Quantity",0) SQ, ROUND(COALESCE("Item Standard Cost",0)*"Ordered Quantity",2) C, TO_CHAR("Actual Ship Date") ASD, TO_CHAR("Schedule Ship Date") SSD, TO_CHAR("Receipt Date") RCD, IFF("Line Type" ILIKE '%RETURN%' OR "Ordered Quantity"<0,1,0) RET FROM EDNA.CONS_INSIGHTS_MART.EDNA_ORDER_MANAGEMENT_REPORT WHERE "Account" RLIKE '^[0-9]{5}$' AND "Line Status" <> 'CANCELED' AND LEFT("Expense Dept",4) IN ${DEPT_IN} AND NOT (COALESCE("Source System Code",'')='ORACLE_EBS' AND "Actual Ship Date" IS NULL AND "Receipt Date" IS NULL)), m AS (SELECT SO FROM l GROUP BY SO HAVING MAX(IFF(SO='${t}',1,0))=1 OR MAX(IFF(UPPER(PN) LIKE '%${t}%',1,0))=1 ORDER BY MAX(IFF(SO='${t}',1,0)) DESC, MAX(OD) DESC LIMIT ${LK_MAX}) SELECT * FROM l WHERE SO IN (SELECT SO FROM m) ORDER BY SO, PN`;
+async function lookup(){
+  const t=S.text.trim().toUpperCase();
+  if(!t||(S.lk.key===t&&S.lk.status==='loading'))return;
+  if(!LK_OK.test(t)){S.lk={key:t,status:'bad'};renderOrders();return;}
+  S.lk={key:t,status:'loading'};renderOrders();
+  let res;
+  try{
+    const lr=await runSql(LOOKUP_SQL(t));
+    const rows=lr.map(r=>({so:s(r.SO),dept:s(r.DEPT),geo:s(r.GEO),shipto:s(r.SHIPTO),acct:s(r.ACCT),od:s(r.OD).slice(0,10),pn:s(r.PN),ls:s(r.LS),q:+r.Q,sq:+r.SQ,c:+r.C,asd:s(r.ASD).slice(0,10),ssd:s(r.SSD).slice(0,10),rcd:s(r.RCD).slice(0,10),ret:+r.RET===1}));
+    const by=new Map();rows.forEach(r=>{if(!by.has(r.so))by.set(r.so,[]);by.get(r.so).push(r);});
+    const orders=[...by.values()].map(g=>makeOrder(g,D.today));
+    // looked-up orders live in S.found only: they show in search results and never enter D.orders, so no quarter, tile or envelope total can move
+    orders.forEach(o=>{if(!D.orders.some(x=>x.so===o.so))S.found.set(o.so,{...o,ext:true});});
+    res={key:t,status:'done',n:orders.length,capped:orders.length>=LK_MAX};
+  }catch(e){res={key:t,status:'err',code:e&&e.code};}
+  if(S.lk.key===t&&S.lk.status==='loading')S.lk=res;   // ignore a result the user has already moved past
+  renderOrders();
+}
+function lkNote(t,nExt){
+  const k=S.lk;
+  if(k.key!==t)return 'Not on this page? Press Enter or use the button to search Snowflake.';
+  if(k.status==='loading')return 'Searching Snowflake…';
+  if(k.status==='bad')return 'Enter at least 3 letters or digits (letters, digits, dot and dash only) to search Snowflake.';
+  if(k.status==='done')return k.n?'Snowflake returned '+k.n+' matching order'+(k.n===1?'':'s')+(nExt?', '+nExt+' not already on this page (tagged Snowflake)':', all already on this page')+(k.capped?'. Showing the '+LK_MAX+' most recent, so narrow the search to see others':'')+'.':'Snowflake found nothing for this search.';
+  const c=k.code;
+  return c==='unavailable'?'Live lookup is not available in this view. Open the page in your Claude app to use it.':c==='blocked_by_policy'?'Your organization\'s settings don\'t let pages use connectors yet.':'Could not reach Snowflake'+(c?' ('+esc(c)+')':'')+'. Try again.';
+}
+function emptySearchMsg(q0,t){
+  const k=S.lk, st=k.key===t?k.status:'idle';
+  if(st==='loading')return 'Searching Snowflake for "'+esc(q0)+'"…';
+  if(st==='done')return 'No order or part number matches "'+esc(q0)+'" in Snowflake either. The lookup covers lab departments 7030, 7110, 7120, 7130 and 7140 on 5-digit expense accounts, so an SO outside those will not appear.';
+  return 'No order or part number matches "'+esc(q0)+'" in the data loaded on this page.<br><button class="lk-go">Look up in Snowflake</button>'+(st==='idle'?'':'<div class="sub-muted" style="margin-top:8px">'+lkNote(t,0)+'</div>');
+}
+
+/* ---------- state ---------- */
+const S={q:'',mode:'budget',status:'all',cat:'',dept:'',text:'',sort:'status',dir:1,openRows:new Set(),pAll:false,pLate:false,sStatus:'all',picked:false,found:new Map(),lk:{key:'',status:'idle'}};
+const save=()=>{try{localStorage.setItem('glbt',JSON.stringify({q:S.q,mode:S.mode}))}catch(e){}};
+// Leaving search clears the box and its own status/sort state, so the quarter view returns exactly as the quarter, tiles and filters were left.
+function resetSearch(){S.text='';S.sStatus='all';S.picked=false;S.lk={key:'',status:'idle'};$('#f-q').value='';}
+
+function drill(q,cat,st){
+  S.q=q;S.mode='budget';S.cat=cat;S.status=st;S.dept='';S.text='';S.openRows.clear();S.pAll=false;
+  $('#f-cat').value=cat;$('#f-dept').value='';$('#f-q').value='';
+  save();renderAll();
+  $('#orders-sec').scrollIntoView({behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'start'});
+}
+
+/* ---------- rail + grid ---------- */
+function fys(qs){return [...new Set(qs.map(q=>q.slice(0,4)))];}
+function renderRail(){
+  const g=$('#qgroup');g.innerHTML='';
+  fys(D.QUARTERS).forEach(fy=>{
+    const box=document.createElement('div');box.className='fy';box.innerHTML='<span class="lbl">'+fy+'</span>';
+    D.QUARTERS.filter(q=>q.startsWith(fy)).forEach(q=>{
+      const b=document.createElement('button');b.className='qbtn';b.textContent=q.slice(4);
+      b.setAttribute('aria-pressed',q===S.q);b.setAttribute('aria-label',qLabel(q)+(q===D.CURQ?' (current quarter)':''));
+      if(q===D.CURQ)b.insertAdjacentHTML('beforeend','<span class="now">NOW</span>');
+      b.onclick=()=>{resetSearch();S.q=q;S.openRows.clear();save();renderAll();};
+      box.appendChild(b);
+    });
+    g.appendChild(box);
+  });
+  $('#m-budget').setAttribute('aria-pressed',S.mode==='budget');
+  $('#m-placed').setAttribute('aria-pressed',S.mode==='placed');
+}
+$('#m-budget').onclick=()=>{resetSearch();S.mode='budget';S.openRows.clear();save();renderAll();};
+$('#m-placed').onclick=()=>{resetSearch();S.mode='placed';S.openRows.clear();save();renderAll();};
+
+function renderQTable(){
+  const Q=D.QUARTERS;
+  let h='<thead><tr><th></th>'+fys(Q).map(fy=>`<th colspan="${Q.filter(q=>q.startsWith(fy)).length}" class="fyh">${fy}</th>`).join('')+'</tr><tr><th></th>'+Q.map(q=>`<th class="${q===D.CURQ?'cur':''}">${q.slice(4)}${q===D.CURQ?' · now':''}</th>`).join('')+'</tr></thead><tbody>';
+  const mapc={'s-green':'g','s-yellow':'y','s-red':'r','s-over':'r','s-none':'n'};
+  [['CapEx','of $300K'],['OpEx','of $100K'],['Total','both envelopes']].forEach(([cat,sub])=>{
+    h+=`<tr><td class="rl">${cat}<span>${sub}</span></td>`;
+    Q.forEach(q=>{
+      let tot,n,cls,pt;
+      if(cat==='Total'){const a=envelope(q,'CapEx'),b=envelope(q,'OpEx');tot=a.tot+b.tot;n=a.n+b.n;cls='tot';pt='';}
+      else{const e=envelope(q,cat);tot=e.tot;n=e.n;cls=mapc[statusOf(tot,ALLOW[cat])[1]];pt=' · '+(tot/ALLOW[cat]*100).toFixed(0)+'%';}
+      const sel=q===S.q&&S.mode==='budget'&&(cat==='Total'?!S.cat:S.cat===cat);
+      h+=`<td><button class="qc ${cls}${sel?' sel':''}" data-q="${q}" data-cat="${cat==='Total'?'':cat}" aria-label="${qLabel(q)} ${cat}: ${money(tot)} across ${n} orders. Show the orders."><span class="tv">${money(tot)}</span><span class="sv">${n} order${n===1?'':'s'}${pt}</span></button></td>`;
+    });
+    h+='</tr>';
+  });
+  $('#qtable').innerHTML=h+'</tbody>';
+  document.querySelectorAll('#qtable .qc').forEach(b=>b.onclick=()=>drill(b.dataset.q,b.dataset.cat,'all'));
+}
+
+/* ---------- envelopes ---------- */
+function renderEnvelopes(){
+  const el=$('#envelopes');el.innerHTML='';
+  const past=qKey(S.q)<qKey(D.CURQ), cur=S.q===D.CURQ, nq=nextQ(S.q);
+  ['CapEx','OpEx'].forEach(cat=>{
+    const A=ALLOW[cat], e=envelope(S.q,cat), rem=A-e.tot, pct=e.tot/A*100;
+    const [st,cls]=statusOf(e.tot,A);
+    const scale=Math.max(A,e.tot);
+    const wA=Math.max(0,e.act)/scale*100, wF=Math.max(0,e.fc)/scale*100;
+    const qTag=past?'Closed quarter':cur?'Current quarter · closes '+fmtD(qEnd(S.q)):'Future quarter';
+    const inQ=D.orders.filter(o=>o.rq===S.q&&o.cat===cat);
+    const stale=inQ.filter(o=>o.status==='stale');
+    let note='';
+    if(cur&&stale.length){
+      const sv=stale.reduce((s,o)=>s+o.hit,0),pl=stale.length>1;
+      const n=envelope(nq,cat),moved=n.tot+sv;
+      note=`<div class="note"><b>${money(sv)}</b> of this is ${stale.length} order${pl?'s':''} with parts past ${pl?'their':'the'} scheduled date. ${pl?'They sit':'It sits'} here because ${pl?'they':'it'} could ship any day. If ${pl?'they haven\'t':'it hasn\'t'} shipped by ${fmtD(qEnd(S.q))}, ${pl?'they roll':'it rolls'} into ${qLabel(nq)}, taking it from ${money(n.tot)} to <b>${money(moved)}</b> (${(moved/A*100).toFixed(0)}%, ${statusOf(moved,A)[0]}).</div>`;
+    } else if(!past&&e.tot>0&&e.act===0){
+      note='<div class="note">Nothing has closed yet. Every dollar here is an open order and moves if its schedule slips.</div>';
+    } else if(past){
+      note=`<div class="note">Final. ${e.nA} order${e.nA===1?'':'s'} closed in the quarter.</div>`;
+    }
+    el.insertAdjacentHTML('beforeend',`
+      <article class="panel">
+        <div class="env-h"><h2>${cat} · ${qLabel(S.q)}</h2><span class="pill ${cls}">${st} · ${pct.toFixed(1)}%</span></div>
+        <div class="allow">${qTag} · allowance ${money(A)}</div>
+        <div class="big"><button class="click" data-cat="${cat}" data-st="all" title="List every order behind this number" style="all:unset;cursor:pointer"><span class="v num" style="text-decoration:underline dotted var(--faint);text-underline-offset:5px">${money(e.tot)}</span></button><span class="of">committed</span></div>
+        <div class="bar" role="img" aria-label="${cat}: ${pct.toFixed(1)} percent of allowance committed"><span class="a" style="width:${wA}%"></span><span class="f" style="width:${wF}%"></span></div>
+        <div class="ticks"><i style="left:${70*A/scale}%">70%</i><i style="left:${90*A/scale}%">90%</i>${e.tot>A?`<i style="left:${100*A/scale}%">100%</i>`:''}</div>
+        <div class="kv">
+          <button class="click" data-cat="${cat}" data-st="closed" title="List the closed orders behind this number"><div class="k"><span class="sw" style="background:var(--actual)"></span>Actual</div><div class="v">${money(e.act)}</div><div class="n">${e.nA} closed</div></button>
+          <button class="click" data-cat="${cat}" data-st="forecast" title="List the open orders behind this number"><div class="k"><span class="sw" style="background:var(--forecast)"></span>Forecast</div><div class="v">${money(e.fc)}</div><div class="n">${e.nF} open</div></button>
+          <div><div class="k"><span class="sw" style="background:var(--remain);outline:1px solid var(--line)"></span>Remaining</div><div class="v" style="color:${rem<0?'var(--bad)':'inherit'}">${money(rem)}</div><div class="n">${(100-pct).toFixed(1)}% left</div></div>
+          <div><div class="k">Orders</div><div class="v">${e.n}</div><div class="n">in the quarter</div></div>
+        </div>${note}
+      </article>`);
+  });
+  el.querySelectorAll('.click').forEach(b=>b.onclick=()=>drill(S.q,b.dataset.cat,b.dataset.st));
+}
+
+/* ---------- orders ---------- */
+const STATUS={closed:['Closed','st-closed','Fully shipped. Cost is actual.'],open:['Open','st-open','Still owed, on schedule.'],stale:['Open · past due','st-stale','A part is past its scheduled date. Counted as shipping today, so it rolls forward until it ships.'],credit:['Credit','st-credit','Return. Lands in the quarter received, or posted until then.']};
+const SORDER={stale:0,open:1,credit:2,closed:3};
+function scope(){return D.orders.filter(o=>(S.mode==='budget'?o.rq:o.pq)===S.q);}
+function lateTxt(o){return o.status!=='stale'?'':(o.daysLate!==null?` <span class="late">· ${o.daysLate}d late</span>`:' <span class="late">· no date</span>');}
+function renderOrders(){
+  // Search mode: a typed SO or part number looks across every order loaded on the page and pauses the quarter, envelope and department filters.
+  const q0=S.text.trim(), t=q0.toUpperCase(), searching=!!t;
+  const hit0=o=>o.so.includes(t)||o.lines.some(l=>l.pn.toUpperCase().includes(t));
+  const loc=searching?D.orders.filter(hit0):[];
+  const ext=searching?[...S.found.values()].filter(o=>hit0(o)&&!D.orders.some(x=>x.so===o.so)):[];   // earlier Snowflake lookups that match this search
+  const base=searching?loc.concat(ext):scope();
+  const stSel=searching?S.sStatus:S.status;
+  $('#f-cat').disabled=searching;$('#f-dept').disabled=searching;
+  $('#orders-title').textContent=searching?'Search results · all quarters':(S.mode==='budget'?'Orders hitting ':'Orders placed in ')+qLabel(S.q);
+  $('#orders-sub').textContent=searching
+    ?'Every order on this page whose SO or part number matches "'+q0+'", from any quarter, open or closed. The quarter, envelope and department filters are paused while you search. Clear the search to go back to '+qLabel(S.q)+'.'
+    :S.mode==='budget'
+    ?'Every order whose cost lands in this quarter\'s allowance, closed and open. Click a tile to filter, or a row to see its lines.'
+    :'Every order raised this quarter, wherever its cost lands (see Budget qtr). Click a tile to filter, or a row to see its lines.';
+  const groups=[['all','All orders','t-all',base],['closed','Closed · Actual','t-closed',base.filter(o=>o.status==='closed')],['open','Open · on schedule','t-open',base.filter(o=>o.status==='open')],['stale','Open · past due','t-stale',base.filter(o=>o.status==='stale')],['credit','Credits','t-credit',base.filter(o=>o.status==='credit')]];
+  $('#tiles').innerHTML=groups.map(([k,t,c,arr])=>{
+    const v=arr.reduce((s,o)=>s+o.hit,0),cx=arr.filter(o=>o.cat==='CapEx').reduce((s,o)=>s+o.hit,0);
+    return `<button class="tile ${c}" data-s="${k}" aria-pressed="${stSel===k}"><span class="t">${t}</span><span class="c">${arr.length} · ${kfmt(v)}</span><span class="d">CapEx ${kfmt(cx)} · OpEx ${kfmt(v-cx)}</span></button>`;
+  }).join('');
+  document.querySelectorAll('#tiles .tile').forEach(b=>b.onclick=()=>{if(S.text.trim())S.sStatus=b.dataset.s;else S.status=b.dataset.s;renderOrders();});
+  let rows=searching
+    ?base.filter(o=>stSel==='all'||o.status===stSel)
+    :base.filter(o=>(stSel==='all'||(stSel==='forecast'?o.spend==='F':o.status===stSel))&&(!S.cat||o.cat===S.cat)&&(!S.dept||o.dept===S.dept));
+  const val={so:o=>+o.so,status:o=>SORDER[o.status]*1e7-o.hit,dept:o=>+o.dept,cat:o=>o.cat,prog:o=>o.nShip/o.nLines,shipped:o=>o.shipped,out:o=>o.out,hit:o=>o.hit,od:o=>o.od,ss:o=>o.ss||'9999',key:o=>o.key,rq:o=>qKey(o.rq)};
+  const byQ=searching&&!S.picked, sk=byQ?'rq':S.sort, sd=byQ?-1:S.dir;   // search results default to newest quarter first until a column header is clicked
+  const f=val[sk]||val.status;
+  rows.sort((a,b)=>{const x=f(a),y=f(b);return (x<y?-1:x>y?1:0)*sd||(byQ?(SORDER[a.status]-SORDER[b.status]||b.hit-a.hit):0);});
+  $('#f-count').textContent=searching?rows.length+' of '+base.length+' matches · all quarters':rows.length+' of '+base.length+' orders';
+  // reconciliation
+  const rsum=rows.reduce((s,o)=>s+o.hit,0);
+  const env=(S.cat?[S.cat]:['CapEx','OpEx']).map(c=>envelope(S.q,c));
+  const tgt={all:['committed',env.reduce((s,e)=>s+e.tot,0)],closed:['actual',env.reduce((s,e)=>s+e.act,0)],forecast:['forecast',env.reduce((s,e)=>s+e.fc,0)]}[S.status];
+  const catTxt=S.cat||'CapEx + OpEx';
+  const showAll=`<button id="recon-all">Show every order behind ${qLabel(S.q)}</button>`;
+  let rc;
+  if(searching){const nq=new Set(rows.map(o=>o.rq)).size;rc=`Searching <b>all quarters</b> for <b>"${esc(q0)}"</b>: <b>${rows.length} order${rows.length===1?'':'s'}</b> across ${nq} quarter${nq===1?'':'s'}, <b>${money(rsum)}</b> combined. This isn't tied to an envelope. ${lkNote(t,ext.length)}<button class="lk-go"${S.lk.key===t&&S.lk.status==='loading'?' disabled':''}>Search Snowflake</button><button id="recon-clear">Back to ${qLabel(S.q)}</button>`;}
+  else if(S.mode==='placed') rc=`These are orders <b>raised</b> in ${qLabel(S.q)}. Each one's cost lands in its Budget qtr, so this list won't equal an envelope. Switch to Budget quarter to see what makes up the forecast.`;
+  else if(tgt&&!S.dept&&!t){const ok=Math.abs(rsum-tgt[1])<0.01;rc=`<span class="${ok?'ok':''}">${ok?'✓':'!'}</span> These <b>${rows.length} orders</b> add up to <b>${money(rsum)}</b>, the ${qLabel(S.q)} ${catTxt} <b>${tgt[0]}</b> figure.${S.status==='all'?' Closed orders are Actual, everything else is Forecast.':''}`+(S.status!=='all'||S.cat?showAll:'');}
+  else rc=`Filtered view: <b>${rows.length} orders</b>, <b>${money(rsum)}</b>. The full ${qLabel(S.q)} ${catTxt} committed figure is ${money(env.reduce((s,e)=>s+e.tot,0))}.`+showAll;
+  $('#recon').innerHTML=rc;
+  $('#recon-all')?.addEventListener('click',()=>drill(S.q,'','all'));
+  $('#recon-clear')?.addEventListener('click',()=>{resetSearch();renderOrders();});
+  document.querySelectorAll('#recon .lk-go').forEach(b=>b.onclick=lookup);
+  document.querySelectorAll('#otable thead th').forEach(th=>{th.querySelector('.ar')?.remove();if(th.dataset.k===sk)th.insertAdjacentHTML('beforeend','<span class="ar">'+(sd>0?'▲':'▼')+'</span>');});
+  const tb=$('#otable tbody');
+  if(!rows.length){tb.innerHTML='<tr><td colspan="12" class="empty">'+(searching?(base.length?'No match in that status. Pick All orders above to see the other '+base.length+'.':emptySearchMsg(q0,t)):base.length?'No orders match these filters. Clear one to see the other '+base.length+'.':'Nothing '+(S.mode==='budget'?'lands in':'was placed in')+' this quarter yet.')+'</td></tr>';$('#otable tfoot').innerHTML='';tb.querySelectorAll('.lk-go').forEach(b=>b.onclick=lookup);return;}
+  tb.innerHTML=rows.map(o=>{
+    const [sl,sc,stip]=STATUS[o.status];
+    const isOpen=S.openRows.has(o.so);
+    let h=`<tr class="o${isOpen?' open-row':''}" data-so="${o.so}" tabindex="0" aria-expanded="${isOpen}">
+      <td><span class="caret">▸</span> ${o.so}${o.ext?' <span class="ext" title="Pulled live from Snowflake. Shown for lookup only, it does not change any total on this page.">Snowflake</span>':''}</td>
+      <td class="mono">${qLabel(o.rq)}</td>
+      <td><span class="st ${sc}" title="${stip}">${sl}</span></td>
+      <td>${o.dept} <span class="sub-muted">${esc(DEPTS[o.dept]||'')}</span></td>
+      <td><span class="cat">${o.cat}</span> <span class="sub-muted mono">${o.acct}</span></td>
+      <td><span class="prog"><i style="width:${o.nShip/o.nLines*100}%"></i></span><span class="mono">${o.nShip}/${o.nLines}</span></td>
+      <td class="r num">${money(o.shipped)}</td>
+      <td class="r num">${Math.abs(o.out)>0.005?money(o.out):'—'}</td>
+      <td class="r num"><b>${money(o.hit)}</b></td>
+      <td class="mono">${fmtD(o.od)}</td>
+      <td class="mono"${o.os?'':' style="color:var(--faint)" title="All lines shipped, so actual ship dates apply. This was the last scheduled date."'}>${o.ss?fmtD(o.ss):'—'}</td>
+      <td class="mono">${fmtD(o.rd)}${lateTxt(o)}</td></tr>`;
+    if(isOpen){
+      h+=`<tr class="detail"><td colspan="12"><div class="lines">
+        <div class="meta"><span>Ship to <b>${esc(o.shipto)}</b></span><span>Region <b>${esc(o.geo)}</b></span><span>Placed <b>${fmtD(o.od)}</b> (${qLabel(o.pq)})</span><span>Lands on <b>${fmtD(o.rd)}</b> · ${qLabel(o.rq)}</span>${o.ext?'<span><b>Live lookup</b> · shown for reference, not part of any total on this page</span>':''}</div>
+        <table><thead><tr><th>Part</th><th>Line status</th><th class="r">Qty</th><th class="r">Shipped</th><th class="r">Line cost</th><th>Scheduled</th><th>Shipped / received</th><th>Counts on</th></tr></thead><tbody>
+        ${o.lines.map(l=>`<tr><td class="mono">${esc(l.pn)}</td><td class="${l.ret?'ls-ret':l.shipped?'ls-ok':l.past?'ls-late':'ls-open'}">${lsLabel(l)}</td><td class="r num">${l.q}</td><td class="r num">${l.sq}</td><td class="r num">${money(l.c,true)}</td><td class="mono">${fmtD(l.ssd)}${l.past?(l.late!==null?` <span class="late">${l.late}d late</span>`:' <span class="late">no date</span>'):''}</td><td class="mono">${fmtD(l.asd||l.rcd)}</td><td class="mono">${fmtD(l.eff)}${l.past?' <span class="sub-muted">today</span>':l.ret&&!l.shipped?' <span class="sub-muted">posted</span>':''}</td></tr>`).join('')}
+        </tbody></table></div></td></tr>`;
+    }
+    return h;
+  }).join('');
+  const sum=k=>rows.reduce((s,o)=>s+o[k],0);
+  $('#otable tfoot').innerHTML=`<tr><td colspan="6">${rows.length} order${rows.length===1?'':'s'} shown</td><td class="r num">${money(sum('shipped'))}</td><td class="r num">${money(sum('out'))}</td><td class="r num">${money(sum('hit'))}</td><td colspan="3"></td></tr>`;
+  tb.querySelectorAll('tr.o').forEach(tr=>{
+    const tog=()=>{const so=tr.dataset.so;S.openRows.has(so)?S.openRows.delete(so):S.openRows.add(so);renderOrders();};
+    tr.onclick=tog;tr.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();tog();}};
+  });
+}
+document.querySelectorAll('#otable thead th').forEach(th=>th.onclick=()=>{const k=th.dataset.k,byQ=!!S.text.trim()&&!S.picked;if(byQ&&k==='rq'){S.sort='rq';S.dir=1;}else if(!byQ&&S.sort===k)S.dir*=-1;else{S.sort=k;S.dir=['hit','shipped','out','prog'].includes(k)?-1:1;}S.picked=true;renderOrders();});
+Object.entries(DEPTS).forEach(([k,v])=>$('#f-dept').insertAdjacentHTML('beforeend',`<option value="${k}">${k} · ${v}</option>`));
+$('#f-cat').onchange=e=>{S.cat=e.target.value;renderOrders();};
+$('#f-dept').onchange=e=>{S.dept=e.target.value;renderOrders();};
+$('#f-q').oninput=e=>{const was=!!S.text.trim();S.text=e.target.value;if(!was&&S.text.trim()){S.sStatus='all';S.picked=false;}renderOrders();};
+$('#f-q').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();lookup();}};
+
+/* ---------- parts still to ship ---------- */
+function renderParts(){
+  $('#p-sel').setAttribute('aria-pressed',!S.pAll);$('#p-all').setAttribute('aria-pressed',S.pAll);$('#p-late').checked=S.pLate;
+  $('#p-sel').textContent=qLabel(S.q);
+  $('#parts-title').textContent='Parts still to ship · '+(S.pAll?'all open orders':qLabel(S.q));
+  const ords=D.orders.filter(o=>o.nOpen>0&&(S.pAll||o.rq===S.q)).sort((a,b)=>SORDER[a.status]-SORDER[b.status]||b.hit-a.hit);
+  const rows=[];
+  ords.forEach(o=>{const ls=o.lines.filter(l=>!l.shipped&&(!S.pLate||l.past));ls.forEach((l,i)=>rows.push({o,l,first:i===0}));});
+  const orderSet=[...new Set(rows.map(r=>r.o))];
+  const partSum=rows.reduce((s,r)=>s+r.l.c,0), ordSum=orderSet.reduce((s,o)=>s+o.hit,0);
+  $('#p-count').textContent=rows.length+' line'+(rows.length===1?'':'s')+' on '+orderSet.length+' order'+(orderSet.length===1?'':'s');
+  let rc;
+  if(!rows.length) rc=S.pLate?'Nothing past due here.':'Nothing left to ship in this view.';
+  else{
+    rc=`These parts cost <b>${money(partSum)}</b> on their own. Because an order lands when its last part ships, they hold <b>${money(ordSum)}</b> of order value`+(S.pAll?' across all quarters':` in ${qLabel(S.q)}`)+'.';
+    if(!S.pAll&&!S.pLate){const fc=envelope(S.q,'CapEx').fc+envelope(S.q,'OpEx').fc;const ok=Math.abs(fc-ordSum)<0.01;rc=`<span class="${ok?'ok':''}">${ok?'✓':'!'}</span> `+rc+` That's the full ${qLabel(S.q)} forecast.`;}
+  }
+  $('#p-recon').innerHTML=rc;
+  $('#ptable tbody').innerHTML=rows.length?rows.map(({o,l,first})=>`<tr class="${first?'first':''}" data-so="${o.so}" data-q="${o.rq}" title="Open order ${o.so}">
+    <td class="mono"><b>${first?o.so:''}</b></td><td class="mono">${esc(l.pn)}</td>
+    <td class="${l.ret?'ls-ret':l.past?'ls-late':'ls-open'}">${lsLabel(l)}</td>
+    <td class="r num">${l.q-l.sq}</td><td class="r num">${money(l.c,true)}</td>
+    <td class="r num ot">${first?money(o.hit):''}</td>
+    <td class="mono">${fmtD(l.ssd)}</td>
+    <td class="mono">${l.past?(l.late!==null?`<span class="late">${l.late}</span>`:'<span class="late">no date</span>'):'—'}</td>
+    <td class="mono">${first?qLabel(o.rq):''}</td><td>${first?o.dept+' <span class="sub-muted">'+esc(DEPTS[o.dept]||'')+'</span>':''}</td></tr>`).join(''):'<tr><td colspan="10" class="empty">'+rc+'</td></tr>';
+  $('#ptable tfoot').innerHTML=rows.length?`<tr><td colspan="4">${rows.length} lines · ${orderSet.length} orders</td><td class="r num">${money(partSum)}</td><td class="r num">${money(ordSum)}</td><td colspan="4"></td></tr>`:'';
+  document.querySelectorAll('#ptable tbody tr[data-so]').forEach(tr=>tr.onclick=()=>{const q=tr.dataset.q,so=tr.dataset.so;drill(q,'','all');S.openRows.add(so);renderOrders();});
+}
+$('#p-sel').onclick=()=>{S.pAll=false;renderParts();};
+$('#p-all').onclick=()=>{S.pAll=true;renderParts();};
+$('#p-late').onchange=e=>{S.pLate=e.target.checked;renderParts();};
+
+/* ---------- charts ---------- */
+function renderChart(cat){
+  const A=ALLOW[cat], T=D.TREND, data=T.map(q=>({q,...envelope(q,cat)}));
+  const max=Math.max(A*1.15,...data.map(d=>d.tot));
+  const W=620,H=230,pl=52,pr=8,pt=14,pb=34,iw=W-pl-pr,ih=H-pt-pb,bw=iw/data.length;
+  const y=v=>pt+ih-Math.max(0,v)/max*ih;
+  const step=cat==='CapEx'?100000:25000;
+  let g='';
+  for(let v=0;v<=max;v+=step){g+=`<line x1="${pl}" x2="${W-pr}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)" stroke-width="1"/><text x="${pl-6}" y="${y(v)+3.5}" text-anchor="end" font-size="10" fill="var(--faint)" font-family="DM Mono,monospace">${kfmt(v)}</text>`;}
+  let bars='';
+  data.forEach((d,i)=>{
+    const x=pl+i*bw+bw*.18,w=bw*.64,sel=d.q===S.q,click=D.QUARTERS.includes(d.q);
+    const hA=Math.max(0,d.act)/max*ih,hF=Math.max(0,d.fc)/max*ih;
+    bars+=`<g class="${click?'qb':''}" data-q="${d.q}" style="cursor:${click?'pointer':'default'}">
+      <rect x="${pl+i*bw}" y="${pt}" width="${bw}" height="${ih}" fill="${sel?'var(--sunk)':'transparent'}"/>
+      <rect x="${x}" y="${pt+ih-hA}" width="${w}" height="${hA}" fill="var(--actual)"/>
+      <rect x="${x}" y="${pt+ih-hA-hF}" width="${w}" height="${hF}" fill="url(#hatch-${cat})"/>
+      <text x="${x+w/2}" y="${H-pb+14}" text-anchor="middle" font-size="10" fill="${sel?'var(--ink)':'var(--muted)'}" font-weight="${sel?700:400}" font-family="DM Sans,sans-serif">${d.q.slice(4)}</text>
+      ${sel&&d.tot>0?`<text x="${x+w/2}" y="${Math.max(pt+20,y(d.tot)-5)}" text-anchor="middle" font-size="10" fill="var(--ink)" font-weight="600" font-family="DM Mono,monospace">${kfmt(d.tot)}</text>`:''}
+      <title>${qLabel(d.q)}: committed ${money(d.tot)} (actual ${money(d.act)}, forecast ${money(d.fc)}), ${(d.tot/A*100).toFixed(1)}% of allowance</title></g>`;
+  });
+  let fyl='';fys(T).forEach((fy,k)=>{const i0=T.findIndex(q=>q.startsWith(fy)),n=T.filter(q=>q.startsWith(fy)).length,x0=pl+i0*bw;fyl+=`<text x="${x0+n*bw/2}" y="${H-4}" text-anchor="middle" font-size="10.5" fill="var(--faint)" font-weight="600" font-family="DM Sans,sans-serif">${fy}</text>${k?`<line x1="${x0}" x2="${x0}" y1="${pt}" y2="${H-pb+18}" stroke="var(--line)"/>`:''}`;});
+  const cq=T.indexOf(D.CURQ);
+  const now=cq>=0?`<text x="${pl+cq*bw+bw/2}" y="${pt-3}" text-anchor="middle" font-size="9" fill="var(--good)" font-weight="700" font-family="DM Sans,sans-serif">NOW</text>`:'';
+  const ay=y(A);
+  $('#ch-'+cat).innerHTML=`<div class="ttl"><h3>${cat}</h3><div class="legend"><span><i style="background:var(--actual)"></i>Actual</span><span><i style="background:var(--forecast)"></i>Forecast</span></div></div>
+  <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${cat} committed spend by quarter against a ${money(A)} allowance">
+    <defs><pattern id="hatch-${cat}" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="var(--forecast)" opacity=".5"/><rect width="3.5" height="6" fill="var(--forecast)"/></pattern></defs>
+    ${g}${bars}${fyl}${now}
+    <line x1="${pl}" x2="${W-pr}" y1="${ay}" y2="${ay}" stroke="var(--bad)" stroke-dasharray="5 4" stroke-width="1.4"/>
+    <text x="${pl+4}" y="${ay-5}" text-anchor="start" font-size="10" fill="var(--bad)" font-family="DM Sans,sans-serif" font-weight="600">Allowance ${kfmt(A)}</text>
+  </svg>`;
+  document.querySelectorAll('#ch-'+cat+' g.qb').forEach(n=>n.onclick=()=>drill(n.dataset.q,cat,'all'));
+}
+
+/* ---------- departments ---------- */
+function renderDepts(){
+  $('#dept-title').textContent='By department · '+qLabel(S.q);
+  const os=D.orders.filter(o=>o.rq===S.q);
+  $('#dtable thead').innerHTML='<tr><th>Department</th><th class="r">CapEx closed</th><th class="r">CapEx open</th><th class="r">OpEx closed</th><th class="r">OpEx open</th><th class="r">Committed</th><th class="r">Orders</th><th>Share</th></tr>';
+  const tot=os.reduce((s,o)=>s+o.hit,0);
+  const cell=(arr,cat,sp)=>arr.filter(o=>o.cat===cat&&o.spend===sp).reduce((s,o)=>s+o.hit,0);
+  const c=(a,v)=>a.length?money(v):'—';
+  $('#dtable tbody').innerHTML=Object.keys(DEPTS).map(d=>{const a=os.filter(o=>o.dept===d),v=a.reduce((s,o)=>s+o.hit,0);
+    return `<tr><td><b>${d}</b> <span class="sub-muted">${DEPTS[d]}</span></td><td class="r num">${c(a,cell(a,'CapEx','A'))}</td><td class="r num">${c(a,cell(a,'CapEx','F'))}</td><td class="r num">${c(a,cell(a,'OpEx','A'))}</td><td class="r num">${c(a,cell(a,'OpEx','F'))}</td><td class="r num"><b>${c(a,v)}</b></td><td class="r num">${a.length||'—'}</td><td><span class="prog" style="width:110px"><i style="width:${tot>0?Math.max(0,v)/tot*100:0}%;background:var(--accent)"></i></span><span class="mono sub-muted">${tot>0&&a.length?(v/tot*100).toFixed(0)+'%':''}</span></td></tr>`;}).join('');
+  $('#dtable tfoot').innerHTML=`<tr><td>Total</td><td class="r num">${money(cell(os,'CapEx','A'))}</td><td class="r num">${money(cell(os,'CapEx','F'))}</td><td class="r num">${money(cell(os,'OpEx','A'))}</td><td class="r num">${money(cell(os,'OpEx','F'))}</td><td class="r num">${money(tot)}</td><td class="r num">${os.length}</td><td></td></tr>`;
+}
+
+/* ---------- watch list (computed from the data, as of today) ---------- */
+function renderWatch(){
+  const CQ=D.CURQ, NQ=nextQ(CQ), items=[];
+  $('#watch-sub').textContent='As of '+fmtD(D.today)+'. What could move the numbers, and what needs a call with Finance.';
+  const stale=D.orders.filter(o=>o.status==='stale');
+  ['CapEx','OpEx'].forEach(cat=>{
+    const st=stale.filter(o=>o.cat===cat);if(!st.length)return;
+    const sv=st.reduce((s,o)=>s+o.hit,0),n=envelope(NQ,cat),moved=n.tot+sv,cq=envelope(CQ,cat);
+    const ds=st.map(o=>o.daysLate).filter(x=>x!==null);
+    items.push({sev:'bad',t:`${cat} past-due orders could roll into ${qLabel(NQ)}`,amt:money(sv),
+      p:`${st.length} open ${cat} order${st.length>1?'s':''} (${st.map(o=>o.so).join(', ')}) ${st.length>1?'have':'has'} parts ${ds.length?Math.min(...ds)+' to '+Math.max(...ds)+' days ':''}past the scheduled date. They count in ${qLabel(CQ)} (${money(cq.tot)}, ${(cq.tot/ALLOW[cat]*100).toFixed(0)}%) because they could ship any day. If they haven't shipped by ${fmtD(qEnd(CQ))}, ${qLabel(NQ)} ${cat} goes from ${money(n.tot)} to <b>${money(moved)}</b>, which is ${(moved/ALLOW[cat]*100).toFixed(1)}% of the allowance (${statusOf(moved,ALLOW[cat])[0]}).`});
+  });
+  // the part holding the most order value open
+  const byPart={};D.orders.filter(o=>o.nOpen>0&&o.status!=='credit').forEach(o=>{new Set(o.lines.filter(l=>!l.shipped&&l.c>1000).map(l=>l.pn)).forEach(pn=>{(byPart[pn]=byPart[pn]||{orders:[],val:0}).orders.push(o);byPart[pn].val+=o.lines.filter(l=>!l.shipped&&l.pn===pn).reduce((s,l)=>s+l.c,0);});});
+  const top=Object.entries(byPart).filter(([,v])=>v.orders.length>=2).sort((a,b)=>b[1].orders.reduce((s,o)=>s+o.hit,0)-a[1].orders.reduce((s,o)=>s+o.hit,0))[0];
+  if(top){const [pn,v]=top,hold=v.orders.reduce((s,o)=>s+o.hit,0),lateN=v.orders.filter(o=>o.status==='stale').length;
+    items.push({sev:'bad',t:`One part is holding ${v.orders.length} orders open: ${pn}`,amt:money(hold),
+      p:`The unshipped ${pn} lines are worth <b>${money(v.val)}</b>, but because cost lands on the last part, they hold <b>${money(hold)}</b> of order value (${v.orders.map(o=>o.so).join(', ')}).${lateN?' '+lateN+' of these are already past due.':''} Worth getting a firm ship date from supply chain, or splitting the part onto its own order so the rest can close.`});}
+  // credits
+  const credits=D.orders.filter(o=>o.status==='credit');
+  if(credits.length){
+    const desc=credits.map(c=>{const rl=c.lines;const orig=D.orders.filter(o=>o!==c&&o.status!=='credit'&&rl.every(l=>o.lines.some(x=>x.pn===l.pn&&x.q===-l.q))).sort((a,b)=>b.od.localeCompare(a.od))[0];
+      return `SO ${c.so} (${money(c.hit)}, ${c.nOpen?'posted '+fmtD(c.od)+', not yet received':'received '+fmtD(c.la)}) lands in ${qLabel(c.rq)}`+(orig?`, returning parts from SO ${orig.so} which landed in ${qLabel(orig.rq)}`:'')+'.';}).join(' ');
+    items.push({sev:'warn',t:'Return credits',amt:money(credits.reduce((s,o)=>s+o.hit,0)),p:desc+' The credit reduces the quarter it lands in, not the quarter of the original spend.'});
+  }
+  // 3P CapEx in foreign currency this quarter
+  const fx={};D.tp.filter(r=>r.fq===CQ&&r.a[0]==='2'&&r.ccy!=='USD').forEach(r=>{fx[r.ccy]=(fx[r.ccy]||0)+r.amt;});
+  const fxE=Object.entries(fx);
+  if(fxE.length){const sym={INR:'₹',EUR:'€',GBP:'£',JPY:'¥',BRL:'R$'};
+    items.push({sev:'warn',t:'Third-party CapEx not yet counted',amt:fxE.map(([c,v])=>(sym[c]||c+' ')+(v>=1e6?(v/1e6).toFixed(1)+'M':Math.round(v/1e3)+'K')).join(' · '),
+      p:`${qLabel(CQ)} has non-USD requisitions coded to CapEx accounts: ${fxE.map(([c,v])=>'<b>'+(sym[c]||'')+v.toLocaleString('en-US')+' '+c+'</b>').join(', ')}. None of it is in Committed. Once it lands through the GL it draws on the same CapEx envelope, so get the USD value from Finance before planning more ${qLabel(NQ)} CapEx.`});}
+  // odd account codes
+  const odd=D.orders.filter(o=>qKey(o.rq)>=qKey(D.QUARTERS[0])&&!['20050','87165'].includes(o.acct));
+  if(odd.length)items.push({sev:'info',t:'Unusual account code',amt:money(odd.reduce((s,o)=>s+o.hit,0)),p:odd.map(o=>`SO ${o.so} (${o.dept}, ${qLabel(o.rq)}) is coded to <b>${o.acct}</b>, not 20050 or 87165. The prefix rule files it as ${o.cat}.`).join(' ')+' Worth checking it isn\'t a typo.'});
+  $('#watch').innerHTML=items.length?items.map(i=>`<div class="w"><span class="sev sev-${i.sev}"></span><h3>${i.t}</h3><span class="amt">${i.amt}</span><p>${i.p}</p></div>`).join(''):'<div class="sub-muted">Nothing flagged.</div>';
+}
+
+/* ---------- third party ---------- */
+function renderTP(){
+  const rows=D.tp.filter(r=>r.fq===S.q);
+  $('#tp-title').textContent='Third-party requisitions · '+qLabel(S.q);
+  const by={};rows.forEach(r=>{const c=r.ccy;by[c]=by[c]||{n:0,cap:0,op:0};r.a[0]==='2'?by[c].cap+=r.amt:by[c].op+=r.amt;by[c].n++;});
+  const sym={USD:'$',INR:'₹',EUR:'€',GBP:'£',JPY:'¥',BRL:'R$','Code 0':''};
+  const f=(c,v)=>(sym[c]??'')+(v>=1e6?(v/1e6).toFixed(2)+'M':v>=1e4?(v/1e3).toFixed(0)+'K':v.toLocaleString('en-US'));
+  $('#tp-tiles').innerHTML=Object.keys(by).length?Object.entries(by).sort((a,b)=>b[1].n-a[1].n).map(([c,v])=>`<div class="tile t-all" style="cursor:default"><span class="t">${c==='Code 0'?'Currency code 0 · unconfirmed':esc(c)}</span><span class="c">${v.n} line${v.n>1?'s':''}</span><span class="d">CapEx ${f(c,v.cap)} · OpEx ${f(c,v.op)}</span></div>`).join(''):'<div class="sub-muted">No third-party requisitions in this quarter.</div>';
+  $('#tptable tbody').innerHTML=rows.length?rows.map(r=>`<tr><td>${esc(r.v)}</td><td class="mono">${esc(r.r)}</td><td>${esc(r.rq)}</td><td class="mono">${esc(r.d)}</td><td><span class="mono">${esc(r.a)}</span> <span class="sub-muted">${esc(r.ad)}</span></td><td class="cat">${r.a[0]==='2'?'CapEx':'OpEx'}</td><td class="r num">${r.amt.toLocaleString('en-US')}</td><td>${esc(r.ccy)}</td><td class="mono">${fmtD(r.date)}${r.na?' <span class="sub-muted" title="Not approved yet. Created date shown.">not approved</span>':''}</td></tr>`).join(''):'<tr><td colspan="9" class="empty">None in this quarter.</td></tr>';
+}
+
+function renderFoot(){
+  $('#foot').textContent=(D.source==='live'?'Live from EDNA via your Snowflake connector, pulled '+D.at.toLocaleString('en-US')+'.':'Pulled from EDNA on '+fmtD(SNAP_DATE)+'. Rebuilt from Snowflake every Wednesday morning.')+' Sources: EDNA.CONS_INSIGHTS_MART.EDNA_ORDER_MANAGEMENT_REPORT and EDNA_PROCUREMENT. '+fys(Object.keys(HIST)).join(', ')+' quarters are summary totals only.';
+}
+function renderAll(){renderRail();renderQTable();renderEnvelopes();renderOrders();renderParts();renderChart('CapEx');renderChart('OpEx');renderDepts();renderTP();renderWatch();renderFoot();}
+
+/* ---------- boot ---------- */
+build(snapshotRows(),snapshotTP(),SNAP_DATE);
+S.q=D.CURQ;
+try{const sv=JSON.parse(localStorage.getItem('glbt')||'{}');if(D.QUARTERS.includes(sv.q))S.q=sv.q;if(sv.mode==='placed'||sv.mode==='budget')S.mode=sv.mode;}catch(e){}
+setFresh('snap');renderAll();
+let autoLive=false;try{autoLive=localStorage.getItem('glbt-live')==='1';}catch(e){}
+if(autoLive||!(window.LAB_DATA&&window.LAB_DATA.O&&window.LAB_DATA.O.length))refresh();
+</script>
+
+</body></html>
