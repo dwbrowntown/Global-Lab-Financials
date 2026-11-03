@@ -1,0 +1,653 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1"><style>:root{color-scheme:light}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#faf9f5;color:#141413}img{max-width:100%}[hidden]:not([hidden=until-found]){display:none!important}</style></head><body>
+<title>Lab Forecast Engine Teardown</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=JetBrains+Mono:wght@400;500;700&display=swap">
+<style>
+:root{
+  --paper:#F5F7F9; --surface:#FFFFFF; --sunk:#EDF0F3;
+  --ink:#12161C; --slate:#5C6675; --faint:#8A939F;
+  --line:#DBE0E6; --line-soft:#E8ECF0;
+  --accent:#2F6F8F; --accent-soft:#E4EFF4;
+  --crit:#B3261E; --crit-soft:#FBE9E7;
+  --warn:#8A5A00; --warn-soft:#FBF1DC;
+  --ok:#1C6B4B;  --ok-soft:#E3F1EA;
+  color-scheme:light dark;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --paper:#0E1216; --surface:#161C23; --sunk:#111720;
+    --ink:#E5E9EE; --slate:#98A2AF; --faint:#6E7986;
+    --line:#28313B; --line-soft:#1F2731;
+    --accent:#74B9D8; --accent-soft:#15303C;
+    --crit:#F08A80; --crit-soft:#331714;
+    --warn:#DCAE55; --warn-soft:#2F2413;
+    --ok:#6FC79E;  --ok-soft:#122C21;
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#0E1216; --surface:#161C23; --sunk:#111720;
+  --ink:#E5E9EE; --slate:#98A2AF; --faint:#6E7986;
+  --line:#28313B; --line-soft:#1F2731;
+  --accent:#74B9D8; --accent-soft:#15303C;
+  --crit:#F08A80; --crit-soft:#331714;
+  --warn:#DCAE55; --warn-soft:#2F2413;
+  --ok:#6FC79E;  --ok-soft:#122C21;
+}
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:"Source Serif 4",Georgia,"Times New Roman",serif;
+  font-size:16.5px; line-height:1.62; -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:1120px; margin:0 auto; padding:0 clamp(18px,4vw,48px) 96px}
+.measure{max-width:70ch}
+h1,h2,h3,h4,.eyebrow,th,.pill,.tag,.nm,.k,.step .sn{font-family:Archivo,"Helvetica Neue",Arial,sans-serif}
+h1{font-size:clamp(2.05rem,5vw,3.1rem); line-height:1.05; font-weight:700; letter-spacing:-.022em; margin:0; text-wrap:balance}
+h2{font-size:clamp(1.35rem,2.6vw,1.72rem); line-height:1.15; font-weight:600; letter-spacing:-.012em; margin:0; text-wrap:balance}
+h3{font-size:1.05rem; font-weight:600; margin:0; text-wrap:balance}
+h4{font-size:.82rem; font-weight:700; letter-spacing:.09em; text-transform:uppercase; color:var(--slate); margin:0}
+p{margin:0}
+.eyebrow{font-size:.73rem; font-weight:700; letter-spacing:.16em; text-transform:uppercase; color:var(--accent)}
+.lede{font-size:1.11rem; color:var(--slate); line-height:1.58}
+.mono{font-family:"JetBrains Mono",ui-monospace,Consolas,monospace; font-variant-ligatures:none}
+code:not(pre code){
+  font-family:"JetBrains Mono",ui-monospace,Consolas,monospace; font-size:.85em;
+  background:var(--sunk); border:1px solid var(--line-soft); border-radius:3px;
+  padding:.08em .34em; white-space:nowrap;
+}
+header.top{padding:clamp(44px,7vw,84px) 0 34px; border-bottom:2px solid var(--ink)}
+.stack{display:flex; flex-direction:column}
+.g14{gap:14px} .g16{gap:16px} .g22{gap:22px} .g28{gap:28px} .g40{gap:40px}
+section.blk{padding-top:clamp(48px,6vw,72px)}
+.sechead{display:flex; flex-direction:column; gap:10px; margin-bottom:26px}
+.sechead .rule{height:1px; background:var(--line); margin-top:4px}
+.verdict{
+  display:grid; grid-template-columns:repeat(auto-fit,minmax(176px,1fr)); gap:1px;
+  background:var(--line); border:1px solid var(--line); border-radius:6px; overflow:hidden; margin-top:30px;
+}
+.vcell{background:var(--surface); padding:16px 18px; display:flex; flex-direction:column; gap:5px}
+.vcell .k{font-size:.695rem; font-weight:700; letter-spacing:.11em; text-transform:uppercase; color:var(--faint); line-height:1.35}
+.vcell .v{font-family:"JetBrains Mono",monospace; font-size:1.4rem; font-weight:700; font-variant-numeric:tabular-nums; line-height:1.1}
+.vcell .n{font-size:.82rem; color:var(--slate); line-height:1.4}
+.v.bad{color:var(--crit)} .v.mid{color:var(--warn)} .v.good{color:var(--ok)}
+.tw{overflow-x:auto; border:1px solid var(--line); border-radius:6px; background:var(--surface)}
+table{border-collapse:collapse; width:100%; font-size:.85rem}
+th{
+  font-size:.675rem; font-weight:700; letter-spacing:.09em; text-transform:uppercase;
+  color:var(--faint); text-align:left; padding:11px 13px; background:var(--sunk);
+  border-bottom:1px solid var(--line); white-space:nowrap;
+}
+td{padding:9px 13px; border-bottom:1px solid var(--line-soft); vertical-align:top}
+tbody tr:last-child td{border-bottom:none}
+td.num,th.num{text-align:right; font-family:"JetBrains Mono",monospace; font-variant-numeric:tabular-nums; white-space:nowrap}
+td.mn{font-family:"JetBrains Mono",monospace; font-size:.79rem; white-space:nowrap}
+tr.hl td{background:var(--crit-soft)}
+tr.hlo td{background:var(--ok-soft)}
+tr.hlw td{background:var(--warn-soft)}
+caption{caption-side:bottom; text-align:left; padding:10px 13px; font-size:.79rem; color:var(--faint); border-top:1px solid var(--line-soft)}
+.pill{
+  display:inline-block; font-size:.655rem; font-weight:700; letter-spacing:.075em;
+  text-transform:uppercase; padding:2.5px 7px; border-radius:3px; white-space:nowrap;
+}
+.p-crit{background:var(--crit-soft); color:var(--crit)}
+.p-warn{background:var(--warn-soft); color:var(--warn)}
+.p-ok{background:var(--ok-soft); color:var(--ok)}
+.p-info{background:var(--accent-soft); color:var(--accent)}
+.code{background:var(--sunk); border:1px solid var(--line); border-radius:6px; overflow-x:auto}
+.code pre{
+  margin:0; padding:16px 18px; font-family:"JetBrains Mono",ui-monospace,Consolas,monospace;
+  font-size:.765rem; line-height:1.6; white-space:pre; color:var(--ink); tab-size:4;
+}
+.code .cm{color:var(--faint)}
+.qhead{
+  display:flex; flex-wrap:wrap; align-items:baseline; justify-content:space-between; gap:10px;
+  border-bottom:2px solid var(--ink); padding-bottom:7px; margin-bottom:11px;
+}
+.qhead .nm{font-family:"JetBrains Mono",monospace; font-size:.94rem; font-weight:700}
+.qhead .tag{font-family:Archivo,sans-serif; font-size:.665rem; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:var(--faint)}
+.qblock{display:flex; flex-direction:column}
+.qnote{font-size:.89rem; color:var(--slate); margin-bottom:11px}
+.call{
+  background:var(--surface); border:1px solid var(--line); border-top:3px solid var(--accent);
+  border-radius:5px; padding:18px 20px; display:flex; flex-direction:column; gap:9px;
+}
+.call.warnc{border-top-color:var(--warn)}
+.call.critc{border-top-color:var(--crit)}
+.call.okc{border-top-color:var(--ok)}
+.call h4{color:var(--accent)}
+.call.warnc h4{color:var(--warn)}
+.call.critc h4{color:var(--crit)}
+.call.okc h4{color:var(--ok)}
+.call p{font-size:.93rem; color:var(--slate)}
+.two{display:grid; grid-template-columns:1fr 1fr; gap:22px; align-items:start}
+.step{display:grid; grid-template-columns:34px 1fr; gap:14px; align-items:start; background:var(--surface); border:1px solid var(--line); border-left:3px solid var(--accent); border-radius:5px; padding:16px 18px}
+.step .sn{font-family:"JetBrains Mono",monospace; font-size:1.05rem; font-weight:700; color:var(--accent); line-height:1.35}
+.step p{font-size:.92rem; color:var(--slate)}
+.step h3{margin-bottom:5px}
+@media(max-width:760px){ .two{grid-template-columns:1fr} }
+::selection{background:var(--accent); color:var(--surface)}
+:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+@media(prefers-reduced-motion:reduce){*{animation:none!important; transition:none!important}}
+</style>
+
+<div class="wrap">
+
+<header class="top">
+  <div class="stack g16">
+    <span class="eyebrow">Global Lab Budget &amp; Order Tracking &middot; the build &middot; v4 &middot; 10 Sep 2026</span>
+    <h1>The build: six queries, zero manual inputs</h1>
+    <p class="lede measure">Grounded in the deep review you asked for. Your own EDNA-only design doc &mdash; the one with SQL executed against the marts and ten ICO totals reconciled to the cent &mdash; is the right foundation, and this pass corrects where my earlier advice diverged from it. Everything below comes from the system, recognises full order cost in the quarter the final SO part ships, and was executed against EDNA before it went on this page.</p>
+  </div>
+
+  <div class="verdict">
+    <div class="vcell"><span class="k">Manual inputs in the build</span><span class="v good">0</span><span class="n">No Excel, no uploads, no mapping tables</span></div>
+    <div class="vcell"><span class="k">Historical tie-out</span><span class="v good">to the cent</span><span class="n">FY26 Q1 CapEx $233,021.38 / 36 orders</span></div>
+    <div class="vcell"><span class="k">Phantom cost removed from my v3</span><span class="v mid">$55,955</span><span class="n">Null std cost = $0 bundle line, not a gap</span></div>
+    <div class="vcell"><span class="k">Permissions you must fix to build</span><span class="v good">0</span><span class="n">Your access already covers both marts</span></div>
+    <div class="vcell"><span class="k">Optional access worth testing</span><span class="v mid">1</span><span class="n">EDNA_PURCHASE_ORDER, for renewal dates</span></div>
+  </div>
+</header>
+
+<!-- ============ 01 CORRECTIONS ============ -->
+<section class="blk">
+  <div class="sechead">
+    <span class="eyebrow">Section 01</span>
+    <h2>What I had wrong, on the record</h2>
+    <div class="rule"></div>
+  </div>
+
+  <p class="measure" style="margin-bottom:22px">You said the advice kept missing. Here is exactly where, verified against your project docs and the live marts, so the corrections are auditable rather than vibes.</p>
+
+  <div class="tw">
+    <table>
+      <thead><tr><th>My earlier advice</th><th>What is actually true</th><th>Proof</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>Fall back to the product-master standard cost when <span class="mono">Item Standard Cost</span> is null, for &ldquo;100% coverage&rdquo;</td>
+          <td><b>Wrong.</b> Null standard cost means a zero-cost bundle line. <code>COALESCE(cost, 0)</code> is the rule. My fallback invented cost that Finance never approved.</td>
+          <td class="mn">SO 5017336: 15 null lines, still ties to the approved $32,989.69 exactly. My basis added +$6,135 in FY26 Q1, +$31,408 in Q4 &mdash; $55,955 across FY26</td>
+        </tr>
+        <tr>
+          <td>3P spend has no system source; chase the AP row policy</td>
+          <td><b>Wrong.</b> <span class="mono">EDNA_PROCUREMENT</span> carries every 3P vendor at requisition grain, and it is open to query and current to yesterday.</td>
+          <td class="mn">1,108 lab rows through 2026-09-09; Ekahau req 10285831 = $80,775, matches your tracker</td>
+        </tr>
+        <tr>
+          <td>Presented FY27 Q1 = $228K as the whole picture</td>
+          <td><b>Partial.</b> That was the EBS era only. The connection I query through is row-filtered at the ERP cutover; your access sees the Fusion era &mdash; 49 more lab orders, $611K, scheduled to Jan 2027.</td>
+          <td class="mn">Both marts stop at 2026-01-23 for me; your v2 doc run reached today with FY27 Q2 pipeline</td>
+        </tr>
+        <tr>
+          <td>Rebuild the Excel/Power Query model (twice)</td>
+          <td><b>Wasted motion.</b> The project had already moved to Sigma + EDNA with a validated design. The right move was always to finish that build, not patch the workbook.</td>
+          <td class="mn">Lab_Cost_Forecast_Sigma_EDNA_v2 &mdash; executed SQL, 10-order reconciliation, cutover fix</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="call okc" style="margin-top:22px">
+    <h4>What survives from the earlier passes, because it is right</h4>
+    <p>Three refinements to your v2 doc&rsquo;s logic, each of which fixes a real defect: open orders recognise on the latest scheduled date of the <b>unshipped</b> lines only, never a max over shipped ones; a forecast date can never land in a quarter that has already closed &mdash; it floors to the current quarter; and the budget table is built on a quarter spine, so a quarter with nothing in it shows $0 of allowance instead of disappearing. That last one is the original &ldquo;FY27 vanished&rdquo; bug, dead permanently.</p>
+  </div>
+</section>
+
+<!-- ============ 02 ACCESS MAP ============ -->
+<section class="blk">
+  <div class="sechead">
+    <span class="eyebrow">Section 02</span>
+    <h2>Sources and access, mapped</h2>
+    <div class="rule"></div>
+  </div>
+
+  <p class="measure" style="margin-bottom:22px">You were right that your access works &mdash; the row filtering I kept tripping over is on the service connection I query through, not on you. That is why my numbers stopped at the cutover and yours did not. Consequence: <b>the build runs in your Sigma workbook under your identity</b>, and these are the facts per source.</p>
+
+  <div class="tw">
+    <table>
+      <thead><tr><th>Source</th><th>Role in the build</th><th>Your access</th><th>This assistant&rsquo;s connection</th><th>Action needed</th></tr></thead>
+      <tbody>
+        <tr class="hlo"><td class="mn">CONS_INSIGHTS_MART.<br>EDNA_ORDER_MANAGEMENT_REPORT</td><td>ICO actuals and forecast &mdash; cost, ship dates, line status, dept, account, ship-to</td><td><span class="pill p-ok">Full, current</span></td><td><span class="pill p-warn">EBS era only</span></td><td>None</td></tr>
+        <tr class="hlo"><td class="mn">CONS_INSIGHTS_MART.<br>EDNA_PROCUREMENT</td><td>3P vendor spend at requisition grain</td><td><span class="pill p-ok">Full, current</span></td><td><span class="pill p-ok">Full, current</span></td><td>None</td></tr>
+        <tr><td class="mn">CONS_DATA_MART.<br>EDNA_PURCHASE_ORDER</td><td>Would add PO-level <span class="mono">End Of Service Date</span>, <span class="mono">Line Amt</span>, currency name &mdash; a true renewal radar</td><td><span class="pill p-info">Test it</span></td><td><span class="pill p-crit">Zero rows</span></td><td>Run <span class="mono">SELECT COUNT(*)</span> on it in Sigma; if zero, request read from the EDNA team</td></tr>
+        <tr><td class="mn">EDNA_AP_TRANSACTION &middot; GL tables</td><td>Invoice-based actuals; not needed for this build</td><td><span class="pill p-info">Unknown</span></td><td><span class="pill p-crit">Zero rows</span></td><td>Optional, only if Finance wants invoice-basis reporting later</td></tr>
+        <tr><td class="mn">SCR_040 export &middot; ICO forms &middot; SC price list &middot; 3P tracker &middot; Legacy_Orders</td><td>None. Retired.</td><td>&mdash;</td><td>&mdash;</td><td>Stop maintaining; keep the 3P tracker file only as the reconciliation record for the switch</td></tr>
+      </tbody>
+      <caption>&ldquo;Zero rows&rdquo; means the table returns nothing account-wide on that connection &mdash; a row access policy, not an empty table. EDNA_PURCHASE_ORDER holds 411,835 rows per metadata.</caption>
+    </table>
+  </div>
+</section>
+
+<!-- ============ 03 THE RULE ============ -->
+<section class="blk">
+  <div class="sechead">
+    <span class="eyebrow">Section 03</span>
+    <h2>The recognition rule, as built</h2>
+    <div class="rule"></div>
+  </div>
+
+  <div class="two">
+    <div class="call">
+      <h4>The rule</h4>
+      <p>The entire order cost lands in the fiscal quarter the <b>last part of that SO ships</b>. Nothing spreads, nothing recognises partially. Cost is <span class="mono">COALESCE("Item Standard Cost",0) &times; "Ordered Quantity"</span> summed to order level &mdash; the expression your doc reconciled against ten approved ICO totals to the cent.</p>
+      <p><b>Fully shipped</b> &rarr; recognised on the latest actual ship date. <b>Still open</b> &rarr; forecast on the latest scheduled date of the lines still owed, never earlier than the current quarter. <b>Open with no date</b> &rarr; current quarter, flagged. Each row is labelled Actual or Forecast, and an order moves between them on its own as lines ship.</p>
+    </div>
+    <div class="call">
+      <h4>Cancellation behaviour, your 7830 case</h4>
+      <p>Cancelled lines are excluded before anything is counted. Cancel the open tail of an order and the remaining lines are all shipped, so the order flips to Actual and <b>back-dates itself to the last part that really shipped</b> &mdash; no manual step, next refresh. Cancelled lines also carry zero quantity in EDNA, so the dollars net out by construction.</p>
+      <p>The four filters that cannot be skipped, all validated: <span class="mono">Account RLIKE '^[0-9]{5}$'</span> &middot; <span class="mono">Line Status &lt;&gt; 'CANCELED'</span> &middot; <span class="mono">LEFT("Expense Dept",4) IN (lab codes)</span> &middot; and <b>no</b> Sales Channel filter, which goes blank after the Fusion cutover.</p>
+    </div>
+  </div>
+
+  <div class="tw" style="margin-top:22px">
+    <table>
+      <thead><tr><th>Quarter</th><th>Cat</th><th class="num">Orders</th><th class="num">Actual</th><th class="num">Forecast</th><th class="num">Committed</th><th class="num">Remaining</th><th>Status</th></tr></thead>
+      <tbody>
+        <tr><td class="mn">FY26Q1</td><td>CapEx</td><td class="num">36</td><td class="num">233,021.38</td><td class="num">0</td><td class="num">233,021.38</td><td class="num">66,978.62</td><td><span class="pill p-warn">Yellow</span></td></tr>
+        <tr><td class="mn">FY26Q2</td><td>CapEx</td><td class="num">12</td><td class="num">111,284.74</td><td class="num">0</td><td class="num">111,284.74</td><td class="num">188,715.26</td><td><span class="pill p-ok">Green</span></td></tr>
+        <tr class="hlw"><td class="mn">FY27Q1</td><td>CapEx</td><td class="num">4</td><td class="num">0</td><td class="num">181,150.29</td><td class="num">181,150.29</td><td class="num">118,849.71</td><td><span class="pill p-ok">Green</span></td></tr>
+        <tr><td class="mn">FY27Q2 &rarr; FY28Q4</td><td>both</td><td class="num">0</td><td class="num">0</td><td class="num">0</td><td class="num">0</td><td class="num">full</td><td><span class="pill p-info">No spend</span></td></tr>
+      </tbody>
+      <caption>Block A executed today on the EBS-era slice this connection can see. The $181,150.29 in FY27 Q1 is the four aged 7830-family orders &mdash; the same figure your doc identified &mdash; now floored into the open quarter instead of sitting in closed FY26 Q3/Q4. On your access, expect the Fusion-era pipeline on top: your doc measured FY26 Q4 committed at $430,080.20 (143%, Over) and $114,082.39 of genuine FY27 Q2 forecast. Ship dates will have moved since; the structure is what to expect.</caption>
+    </table>
+  </div>
+</section>
+
+<!-- ============ 04 SQL ============ -->
+<section class="blk">
+  <div class="sechead">
+    <span class="eyebrow">Section 04</span>
+    <h2>The six queries</h2>
+    <div class="rule"></div>
+  </div>
+
+  <p class="measure" style="margin-bottom:26px">Drop-in Custom SQL elements for your existing Sigma workbook &mdash; A and D replace the elements you have; B and C keep your doc&rsquo;s validated versions with small extensions; E is new. All logic lives in the SQL; Sigma only displays.</p>
+
+  <div class="stack g40">
+
+    <div class="qblock">
+      <div class="qhead"><span class="nm">BLOCK A &middot; Finance Cost Forecast</span><span class="tag">Replaces current Block A &middot; executed today</span></div>
+      <p class="qnote">One row per quarter per category, every quarter present from FY24 through two years out. The three refinements over your v2 doc are marked.</p>
+      <div class="code"><pre>WITH lab_lines AS (
+  SELECT
+    "Order Number"                                         AS SO_NUMBER,
+    "Account"                                              AS ACCOUNT_CODE,
+    LEFT("Expense Dept", 4)                                AS EXPENSE_DEPT,
+    COALESCE("Item Standard Cost", 0) * "Ordered Quantity" AS LINE_COST,  <span class="cm">-- reconciled to the cent; null = $0 bundle line</span>
+    "Actual Ship Date"                                     AS ACTUAL_SHIP_DATE,
+    "Schedule Ship Date"                                   AS SCHEDULE_SHIP_DATE
+  FROM EDNA.CONS_INSIGHTS_MART.EDNA_ORDER_MANAGEMENT_REPORT
+  WHERE "Account" RLIKE '^[0-9]{5}$'                       <span class="cm">-- free-text notes live in Account</span>
+    AND "Line Status" &lt;&gt; 'CANCELED'                        <span class="cm">-- else fully-shipped orders read as open</span>
+    AND LEFT("Expense Dept", 4) IN ('7030','7110','7120','7130','7140')
+    <span class="cm">-- NO Sales Channel filter: blank after the Fusion cutover</span>
+),
+orders AS (
+  SELECT
+    SO_NUMBER,
+    MAX(ACCOUNT_CODE)                                                   AS ACCOUNT_CODE,
+    COUNT(*)                                                            AS LINE_COUNT,
+    SUM(CASE WHEN ACTUAL_SHIP_DATE IS NULL THEN 1 ELSE 0 END)           AS OPEN_LINES,
+    ROUND(SUM(LINE_COST), 2)                                            AS BUDGET_HIT,
+    MAX(ACTUAL_SHIP_DATE)                                               AS LAST_ACTUAL,
+    <span class="cm">-- REFINEMENT 1: scheduled date of the lines STILL OWED, not all lines</span>
+    MAX(CASE WHEN ACTUAL_SHIP_DATE IS NULL THEN SCHEDULE_SHIP_DATE END) AS OPEN_SCHED
+  FROM lab_lines GROUP BY SO_NUMBER
+),
+recog AS (
+  SELECT o.*,
+    <span class="cm">-- THE RULE: full cost in the quarter the last part ships.
+    -- REFINEMENT 2: an open order can never recognise in a closed quarter.
+    -- REFINEMENT 3: open with no date anywhere = current quarter, not dropped.</span>
+    CASE WHEN OPEN_LINES = 0 THEN LAST_ACTUAL
+         WHEN OPEN_SCHED IS NOT NULL
+              THEN GREATEST(OPEN_SCHED, DATE_TRUNC('quarter', CURRENT_DATE()))
+         ELSE DATE_TRUNC('quarter', CURRENT_DATE()) END                 AS RECOGNITION_DATE,
+    CASE WHEN OPEN_LINES = 0 THEN 'Actual' ELSE 'Forecast' END          AS SPEND_TYPE,
+    CASE WHEN LEFT(ACCOUNT_CODE,1) = '2' THEN 'CapEx' ELSE 'OpEx' END   AS BUDGET_CATEGORY
+  FROM orders o
+),
+fiscal AS (
+  SELECT r.*,
+    CASE WHEN MONTH(RECOGNITION_DATE) &gt;= 7 THEN YEAR(RECOGNITION_DATE)+1
+         ELSE YEAR(RECOGNITION_DATE) END                                AS FISCAL_YEAR,
+    CASE WHEN MONTH(RECOGNITION_DATE) &lt;= 3 THEN 'Q3'
+         WHEN MONTH(RECOGNITION_DATE) &lt;= 6 THEN 'Q4'
+         WHEN MONTH(RECOGNITION_DATE) &lt;= 9 THEN 'Q1' ELSE 'Q2' END      AS FISCAL_QUARTER
+  FROM recog r WHERE RECOGNITION_DATE IS NOT NULL
+),
+allowance AS (
+  <span class="cm">-- the one editable thing in the model. Change here when Finance changes it.</span>
+  SELECT cat AS BUDGET_CATEGORY, amt AS QUARTER_BUDGET
+  FROM VALUES ('CapEx', 300000), ('OpEx', 100000) AS t(cat, amt)
+),
+bounds AS (
+  SELECT LEAST(MIN(FISCAL_YEAR), 2024) AS MIN_FY,
+         GREATEST(MAX(FISCAL_YEAR),
+                  CASE WHEN MONTH(CURRENT_DATE()) &gt;= 7 THEN YEAR(CURRENT_DATE())+2
+                       ELSE YEAR(CURRENT_DATE())+1 END)                 AS MAX_FY
+  FROM fiscal
+),
+years AS (
+  SELECT FISCAL_YEAR FROM (
+    SELECT b.MIN_FY + SEQ4() AS FISCAL_YEAR, b.MAX_FY
+    FROM bounds b, TABLE(GENERATOR(ROWCOUNT =&gt; 25)))
+  WHERE FISCAL_YEAR &lt;= MAX_FY
+),
+spine AS (
+  <span class="cm">-- every quarter exists even with zero spend: FY27 can never vanish again</span>
+  SELECT y.FISCAL_YEAR, q.FISCAL_QUARTER, a.BUDGET_CATEGORY, a.QUARTER_BUDGET
+  FROM years y
+  CROSS JOIN (SELECT 'Q1' AS FISCAL_QUARTER UNION ALL SELECT 'Q2'
+              UNION ALL SELECT 'Q3' UNION ALL SELECT 'Q4') q
+  CROSS JOIN allowance a
+),
+rollup AS (
+  SELECT FISCAL_YEAR, FISCAL_QUARTER, BUDGET_CATEGORY,
+         COUNT(*)                                                            AS ORDERS,
+         ROUND(SUM(CASE WHEN SPEND_TYPE='Actual'   THEN BUDGET_HIT ELSE 0 END),2) AS ACTUAL_SPEND,
+         ROUND(SUM(CASE WHEN SPEND_TYPE='Forecast' THEN BUDGET_HIT ELSE 0 END),2) AS FORECAST_SPEND,
+         ROUND(SUM(BUDGET_HIT),2)                                            AS TOTAL_COMMITTED
+  FROM fiscal GROUP BY 1,2,3
+)
+SELECT
+  'FY' || RIGHT(s.FISCAL_YEAR::VARCHAR,2) || s.FISCAL_QUARTER          AS FYFQ,
+  s.FISCAL_YEAR, s.FISCAL_QUARTER, s.BUDGET_CATEGORY,
+  COALESCE(r.ORDERS, 0)                                                AS ORDERS,
+  s.QUARTER_BUDGET,
+  COALESCE(r.ACTUAL_SPEND, 0)                                          AS ACTUAL_SPEND,
+  COALESCE(r.FORECAST_SPEND, 0)                                        AS FORECAST_SPEND,
+  COALESCE(r.TOTAL_COMMITTED, 0)                                       AS TOTAL_COMMITTED,
+  ROUND(s.QUARTER_BUDGET - COALESCE(r.TOTAL_COMMITTED,0), 2)           AS REMAINING_BUDGET,
+  ROUND(100.0 * COALESCE(r.TOTAL_COMMITTED,0) / s.QUARTER_BUDGET, 1)   AS PCT_OF_BUDGET,
+  CASE WHEN COALESCE(r.TOTAL_COMMITTED,0) &gt;  s.QUARTER_BUDGET       THEN 'Over'
+       WHEN COALESCE(r.TOTAL_COMMITTED,0) &gt;  s.QUARTER_BUDGET * 0.9 THEN 'Red'
+       WHEN COALESCE(r.TOTAL_COMMITTED,0) &gt;  s.QUARTER_BUDGET * 0.7 THEN 'Yellow'
+       WHEN COALESCE(r.TOTAL_COMMITTED,0) =  0                      THEN 'No spend'
+       ELSE 'Green' END                                                AS STATUS,
+  <span class="cm">-- self-maintaining current-quarter flag: the dashboard KPIs filter on this,
+  -- so nothing needs re-pointing when the quarter rolls</span>
+  ('FY' || RIGHT((CASE WHEN MONTH(CURRENT_DATE()) &gt;= 7 THEN YEAR(CURRENT_DATE())+1
+                       ELSE YEAR(CURRENT_DATE()) END)::VARCHAR, 2)
+        || CASE WHEN MONTH(CURRENT_DATE()) &lt;= 3 THEN 'Q3'
+                WHEN MONTH(CURRENT_DATE()) &lt;= 6 THEN 'Q4'
+                WHEN MONTH(CURRENT_DATE()) &lt;= 9 THEN 'Q1' ELSE 'Q2' END)
+   = ('FY' || RIGHT(s.FISCAL_YEAR::VARCHAR,2) || s.FISCAL_QUARTER)     AS IS_CURRENT_FQ
+FROM spine s
+LEFT JOIN rollup r USING (FISCAL_YEAR, FISCAL_QUARTER, BUDGET_CATEGORY)
+ORDER BY s.FISCAL_YEAR, s.FISCAL_QUARTER, s.BUDGET_CATEGORY</pre></div>
+    </div>
+
+    <div class="qblock">
+      <div class="qhead"><span class="nm">BLOCK B &middot; Active Order Lines</span><span class="tag">Your doc&rsquo;s version, kept &middot; two extensions</span></div>
+      <p class="qnote">Line grain, unshipped only. Kept exactly as your executed v2 Block B &mdash; including the EBS and Fusion status map (<span class="mono">AWAIT_SHIP</span>, <span class="mono">EN_SCHEDULED</span>) &mdash; with two additions marked below.</p>
+      <div class="code"><pre>SELECT
+  "Order Number"                                            AS SO_NUMBER,
+  "Ordered Item"                                            AS PART_NUMBER,
+  CASE "Line Status"
+    WHEN 'CLOSED'               THEN 'Shipped'
+    WHEN 'AWAITING_SHIPPING'    THEN 'Awaiting Shipping'    <span class="cm">-- EBS</span>
+    WHEN 'AWAIT_SHIP'           THEN 'Awaiting Shipping'    <span class="cm">-- Fusion</span>
+    WHEN 'AWAITING_FULFILLMENT' THEN 'Awaiting Fulfilment'
+    WHEN 'EN_SCHEDULED'         THEN 'Scheduled'            <span class="cm">-- Fusion</span>
+    WHEN 'BOOKED'               THEN 'Booked'
+    ELSE COALESCE("Line Status", 'Unknown') END             AS STATUS_LABEL,
+  TRIM("Ship To Party Name")                                AS SHIP_TO,
+  "Ship To Site Region"                                     AS GEO,
+  LEFT("Expense Dept", 4)                                   AS EXPENSE_DEPT,
+  "Account"                                                 AS ACCOUNT_CODE,
+  CASE WHEN LEFT("Account",1)='2' THEN 'CapEx' ELSE 'OpEx' END AS BUDGET_CATEGORY,
+  "Ordered Quantity"                                        AS ORDERED_QTY,
+  COALESCE("Shipped Quantity", 0)                           AS SHIPPED_QTY,
+  "Ordered Quantity" - COALESCE("Shipped Quantity", 0)      AS QTY_OUTSTANDING,
+  ROUND(COALESCE("Item Standard Cost",0) * "Ordered Quantity", 2) AS LINE_COST,
+  "Schedule Ship Date"                                      AS SCHEDULE_SHIP_DATE,
+  DATEDIFF(DAY, CURRENT_DATE(), "Schedule Ship Date")       AS DAYS_TO_SHIP,
+  CASE
+    WHEN "Schedule Ship Date" IS NULL                              THEN 'Unscheduled'
+    WHEN DATEDIFF(DAY, CURRENT_DATE(), "Schedule Ship Date") &lt; 0   THEN 'Overdue'
+    WHEN DATEDIFF(DAY, CURRENT_DATE(), "Schedule Ship Date") &lt;= 7  THEN '0-7 Days'
+    WHEN DATEDIFF(DAY, CURRENT_DATE(), "Schedule Ship Date") &lt;= 14 THEN '8-14 Days'
+    WHEN DATEDIFF(DAY, CURRENT_DATE(), "Schedule Ship Date") &lt;= 30 THEN '15-30 Days'
+    ELSE '30+ Days' END                                     AS SHIP_BUCKET,
+  <span class="cm">-- EXTENSION 1: where this line's order recognises under the floor rule</span>
+  GREATEST(COALESCE("Schedule Ship Date", CURRENT_DATE()),
+           DATE_TRUNC('quarter', CURRENT_DATE()))           AS EFFECTIVE_FORECAST_DATE,
+  <span class="cm">-- EXTENSION 2: days a stale line has sat past its promise - cancellation queue</span>
+  CASE WHEN "Schedule Ship Date" &lt; CURRENT_DATE()
+       THEN DATEDIFF(DAY, "Schedule Ship Date", CURRENT_DATE()) END AS DAYS_STALE,
+  <span class="cm">-- fiscal-quarter label of the effective forecast date, for the by-quarter chart</span>
+  'FY' || RIGHT((YEAR(EFFECTIVE_FORECAST_DATE)
+                 + CASE WHEN MONTH(EFFECTIVE_FORECAST_DATE) &gt;= 7 THEN 1 ELSE 0 END)::VARCHAR, 2)
+       || CASE WHEN MONTH(EFFECTIVE_FORECAST_DATE) &lt;= 3 THEN 'Q3'
+               WHEN MONTH(EFFECTIVE_FORECAST_DATE) &lt;= 6 THEN 'Q4'
+               WHEN MONTH(EFFECTIVE_FORECAST_DATE) &lt;= 9 THEN 'Q1' ELSE 'Q2' END AS FORECAST_FYFQ
+FROM EDNA.CONS_INSIGHTS_MART.EDNA_ORDER_MANAGEMENT_REPORT
+WHERE "Account" RLIKE '^[0-9]{5}$'
+  AND "Line Status" &lt;&gt; 'CANCELED'
+  AND LEFT("Expense Dept", 4) IN ('7030','7110','7120','7130','7140')
+  AND "Actual Ship Date" IS NULL
+ORDER BY "Schedule Ship Date"</pre></div>
+    </div>
+
+    <div class="qblock">
+      <div class="qhead"><span class="nm">BLOCK C &middot; 3P Vendor Spend</span><span class="tag">Your doc&rsquo;s version, verified current to 09 Sep 2026</span></div>
+      <p class="qnote">Requisition grain from <span class="mono">EDNA_PROCUREMENT</span>, recognised at PR approval &mdash; the commitment date &mdash; because no contract term exists in EDNA. Currency stays a dimension: never sum across it. The account list keeps lab equipment, software and licensing, and excludes the recruiting and contract-labour spend that also sits in these departments.</p>
+      <div class="code"><pre>SELECT
+  "Party Name"                                     AS VENDOR,
+  "Requisition Number"                             AS REQUISITION,
+  "Line Number"                                    AS LINE_NUMBER,
+  "Requester Name"                                 AS REQUESTER,
+  "Deliver To Location"                            AS LOCATION,
+  "EBS GL Dept Code"                               AS EXPENSE_DEPT,
+  "EBS GL Acct Code"                               AS ACCOUNT_CODE,
+  "EBS GL Acct Desc"                               AS ACCOUNT_DESC,
+  CASE WHEN LEFT("EBS GL Acct Code",1)='2' THEN 'CapEx' ELSE 'OpEx' END AS BUDGET_CATEGORY,
+  "Quantity"                                       AS QUANTITY,
+  "Unit Price"                                     AS UNIT_PRICE,
+  "Amount"                                         AS AMOUNT,
+  COALESCE(NULLIF("Invoice Currency Code",'0'), 'UNSPECIFIED')     AS CURRENCY,
+  CASE WHEN COALESCE("Invoice Currency Code",'0') IN ('0','USD')
+       THEN 'Assumed USD' ELSE 'Foreign currency' END              AS CURRENCY_FLAG,
+  "Creation Date"                                  AS PR_CREATED,
+  "PR Approved Date"                               AS PR_APPROVED,
+  CASE WHEN MONTH(COALESCE("PR Approved Date","Creation Date")) &gt;= 7
+       THEN YEAR(COALESCE("PR Approved Date","Creation Date"))+1
+       ELSE YEAR(COALESCE("PR Approved Date","Creation Date")) END AS FISCAL_YEAR,
+  CASE WHEN MONTH(COALESCE("PR Approved Date","Creation Date")) &lt;= 3 THEN 'Q3'
+       WHEN MONTH(COALESCE("PR Approved Date","Creation Date")) &lt;= 6 THEN 'Q4'
+       WHEN MONTH(COALESCE("PR Approved Date","Creation Date")) &lt;= 9 THEN 'Q1'
+       ELSE 'Q2' END                               AS FISCAL_QUARTER
+FROM EDNA.CONS_INSIGHTS_MART.EDNA_PROCUREMENT
+WHERE "EBS GL Dept Code" IN ('7030','7110','7120','7130','7140')
+  AND UPPER("Party Name") NOT LIKE '%EXTREME NETWORKS%'
+  AND "Amount" IS NOT NULL
+  AND "Creation Date" &gt;= DATEADD(YEAR, -3, CURRENT_DATE())
+  AND "EBS GL Acct Code" IN ('20050','20020','20040','87100','87120',
+                             '87140','87160','87165','89150','89170',
+                             '89180','89260','89270')
+ORDER BY "Creation Date" DESC</pre></div>
+    </div>
+
+    <div class="qblock">
+      <div class="qhead"><span class="nm">BLOCK C2 &middot; Renewal Cadence</span><span class="tag">Your doc&rsquo;s version &middot; inferred, labelled as such</span></div>
+      <p class="qnote">No contract end dates exist in the requisition mart, so renewals are inferred from repeat cadence per vendor. If <span class="mono">EDNA_PURCHASE_ORDER</span> opens up for you and its <span class="mono">End Of Service Date</span> is populated, replace this with real dates.</p>
+      <div class="code"><pre>SELECT
+  "Party Name"                                        AS VENDOR,
+  "EBS GL Acct Desc"                                  AS ACCOUNT_DESC,
+  COUNT(DISTINCT "Requisition Number")                AS REQUISITIONS,
+  MIN("Creation Date")                                AS FIRST_PR,
+  MAX("Creation Date")                                AS LATEST_PR,
+  DATEDIFF(DAY, MAX("Creation Date"), CURRENT_DATE()) AS DAYS_SINCE_LATEST,
+  ROUND(SUM("Amount"), 2)                             AS AMOUNT_ALL_CCY,
+  LISTAGG(DISTINCT COALESCE(NULLIF("Invoice Currency Code",'0'),'UNSPEC'), ', ') AS CURRENCIES
+FROM EDNA.CONS_INSIGHTS_MART.EDNA_PROCUREMENT
+WHERE "EBS GL Dept Code" IN ('7030','7110','7120','7130','7140')
+  AND UPPER("Party Name") NOT LIKE '%EXTREME NETWORKS%'
+  AND "EBS GL Acct Code" IN ('87160','89260','87120','89270')
+GROUP BY 1, 2
+HAVING COUNT(DISTINCT "Requisition Number") &gt;= 2
+ORDER BY DAYS_SINCE_LATEST DESC</pre></div>
+    </div>
+
+    <div class="qblock">
+      <div class="qhead"><span class="nm">BLOCK D &middot; Order Audit &amp; Data Quality</span><span class="tag">Replaces current Block D &middot; one row per order</span></div>
+      <p class="qnote">The audit trail behind every Finance figure, with the DQ flags that police the model&rsquo;s two assumptions: one account per order, and dates on open orders.</p>
+      <div class="code"><pre>WITH lab_lines AS (
+  SELECT
+    "Order Number"                                         AS SO_NUMBER,
+    "Account"                                              AS ACCOUNT_CODE,
+    LEFT("Expense Dept", 4)                                AS EXPENSE_DEPT,
+    "Ship To Site Region"                                  AS GEO,
+    TRIM("Ship To Party Name")                             AS SHIP_TO,
+    "Ordered Quantity"                                     AS ORDERED_QTY,
+    COALESCE("Item Standard Cost", 0) * "Ordered Quantity" AS LINE_COST,
+    CASE WHEN "Item Standard Cost" IS NULL THEN 1 ELSE 0 END AS ZERO_COST_LINE,
+    "Actual Ship Date"                                     AS ACTUAL_SHIP_DATE,
+    "Schedule Ship Date"                                   AS SCHEDULE_SHIP_DATE
+  FROM EDNA.CONS_INSIGHTS_MART.EDNA_ORDER_MANAGEMENT_REPORT
+  WHERE "Account" RLIKE '^[0-9]{5}$'
+    AND "Line Status" &lt;&gt; 'CANCELED'
+    AND LEFT("Expense Dept", 4) IN ('7030','7110','7120','7130','7140')
+)
+SELECT
+  SO_NUMBER,
+  MAX(ACCOUNT_CODE)                                          AS ACCOUNT_CODE,
+  CASE WHEN LEFT(MAX(ACCOUNT_CODE),1)='2' THEN 'CapEx' ELSE 'OpEx' END AS BUDGET_CATEGORY,
+  MAX(EXPENSE_DEPT)                                          AS EXPENSE_DEPT,
+  MAX(GEO)                                                   AS GEO,
+  MAX(SHIP_TO)                                               AS SHIP_TO,
+  COUNT(*)                                                   AS LINE_COUNT,
+  SUM(ZERO_COST_LINE)                                        AS ZERO_COST_LINES,   <span class="cm">-- expected non-zero: bundles</span>
+  SUM(CASE WHEN ACTUAL_SHIP_DATE IS NULL THEN 1 ELSE 0 END)  AS OPEN_LINES,
+  ROUND(SUM(LINE_COST), 2)                                   AS BUDGET_HIT,
+  MAX(ACTUAL_SHIP_DATE)                                      AS FINAL_ACTUAL_SHIP,
+  MAX(CASE WHEN ACTUAL_SHIP_DATE IS NULL THEN SCHEDULE_SHIP_DATE END) AS OPEN_SCHED,
+  CASE WHEN SUM(CASE WHEN ACTUAL_SHIP_DATE IS NULL THEN 1 ELSE 0 END) = 0
+       THEN MAX(ACTUAL_SHIP_DATE)
+       WHEN MAX(CASE WHEN ACTUAL_SHIP_DATE IS NULL THEN SCHEDULE_SHIP_DATE END) IS NOT NULL
+       THEN GREATEST(MAX(CASE WHEN ACTUAL_SHIP_DATE IS NULL THEN SCHEDULE_SHIP_DATE END),
+                     DATE_TRUNC('quarter', CURRENT_DATE()))
+       ELSE DATE_TRUNC('quarter', CURRENT_DATE()) END        AS RECOGNITION_DATE,
+  CASE WHEN SUM(CASE WHEN ACTUAL_SHIP_DATE IS NULL THEN 1 ELSE 0 END) &gt; 0
+       THEN 'Forecast' ELSE 'Actual' END                     AS SPEND_TYPE,
+  CASE WHEN COUNT(DISTINCT ACCOUNT_CODE) &gt; 1 THEN 'Multiple accounts on one order'
+       WHEN SUM(CASE WHEN ACTUAL_SHIP_DATE IS NULL THEN 1 ELSE 0 END) &gt; 0
+            AND MAX(CASE WHEN ACTUAL_SHIP_DATE IS NULL THEN SCHEDULE_SHIP_DATE END) IS NULL
+            THEN 'Open with no scheduled date - recognised current quarter'
+       WHEN MAX(CASE WHEN ACTUAL_SHIP_DATE IS NULL THEN SCHEDULE_SHIP_DATE END) &lt; CURRENT_DATE()
+            THEN 'Stale backlog - scheduled date has passed, review for cancellation'
+       ELSE NULL END                                         AS DQ_ISSUE
+FROM lab_lines
+GROUP BY SO_NUMBER
+ORDER BY RECOGNITION_DATE DESC</pre></div>
+    </div>
+
+    <div class="qblock">
+      <div class="qhead"><span class="nm">BLOCK E &middot; Department Scope Review</span><span class="tag">New &middot; executed today</span></div>
+      <p class="qnote">Orders coded to a lab department that do not look like lab spend: hardware to a non-Extreme entity, or shipped outside the department&rsquo;s region. Scoped to the last three fiscal years so 2018-era history does not drown the signal; today it surfaces Green Bay Packers ($11,206) and Infovista, among others.</p>
+      <div class="code"><pre>WITH dept_dim AS (
+  SELECT * FROM VALUES
+    ('7030','Service Operations - Salem','AMERICAS'),
+    ('7110','LATAM TAC',                 'AMERICAS'),
+    ('7120','Asia TAC - Chennai',        'APAC'),
+    ('7130','EMEA TAC - Reading',        'EMEA'),
+    ('7140','Americas TAC',              'AMERICAS')
+    AS d(DEPT_CODE, DEPT_NAME, EXPECTED_REGION)
+),
+orders AS (
+  SELECT "Order Number"                       AS SO_NUMBER,
+         LEFT("Expense Dept",4)               AS DEPT_CODE,
+         MAX("Account")                       AS ACCOUNT_CODE,
+         MAX(TRIM("Ship To Party Name"))      AS SHIP_TO,     <span class="cm">-- TRIM: names carry stray tabs</span>
+         MAX(TRIM("Ship To Site Region"))     AS REGION,
+         ROUND(SUM(COALESCE("Item Standard Cost",0) * "Ordered Quantity"),2) AS BUDGET_HIT,
+         MAX("Actual Ship Date")              AS LAST_SHIP,
+         MIN("Schedule Ship Date")            AS FIRST_SCHED
+  FROM EDNA.CONS_INSIGHTS_MART.EDNA_ORDER_MANAGEMENT_REPORT
+  WHERE "Account" RLIKE '^[0-9]{5}$'
+    AND "Line Status" &lt;&gt; 'CANCELED'
+    AND LEFT("Expense Dept",4) IN ('7030','7110','7120','7130','7140')
+  GROUP BY 1,2
+)
+SELECT o.SO_NUMBER, o.DEPT_CODE, d.DEPT_NAME, d.EXPECTED_REGION,
+       o.REGION, o.SHIP_TO, o.ACCOUNT_CODE, o.BUDGET_HIT, o.LAST_SHIP,
+       TRIM(CONCAT(
+         CASE WHEN UPPER(o.SHIP_TO) NOT LIKE '%EXTREME%'
+              THEN 'Ship-to is not an Extreme entity.  ' ELSE '' END,
+         CASE WHEN UPPER(o.REGION) &lt;&gt; d.EXPECTED_REGION
+              THEN 'Region is not ' || d.EXPECTED_REGION || '.' ELSE '' END)) AS REVIEW_REASON
+FROM orders o
+JOIN dept_dim d ON d.DEPT_CODE = o.DEPT_CODE
+WHERE (UPPER(o.SHIP_TO) NOT LIKE '%EXTREME%'
+    OR UPPER(o.REGION) &lt;&gt; d.EXPECTED_REGION)
+  AND COALESCE(o.LAST_SHIP, o.FIRST_SCHED) &gt;= DATEADD(YEAR, -3, CURRENT_DATE())
+ORDER BY o.BUDGET_HIT DESC</pre></div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ============ 05 SIGMA ============ -->
+<section class="blk">
+  <div class="sechead">
+    <span class="eyebrow">Section 05</span>
+    <h2>Assembly in Sigma</h2>
+    <div class="rule"></div>
+  </div>
+
+  <p class="measure" style="margin-bottom:22px">Keep your existing workbook &mdash; no need for a new one. Replace the SQL in your current Block A and Block D elements, keep B and C, add C2 and E. Six sources, four tabs. No calculated columns anywhere: every derived value is already a column.</p>
+
+  <div class="tw">
+    <table>
+      <thead><tr><th>Tab</th><th>Elements</th><th>Source</th></tr></thead>
+      <tbody>
+        <tr><td><b>Finance Cost Forecast</b></td><td>KPIs (committed, remaining, % used, forecast pressure for the current FYFQ) &middot; budget pressure table with STATUS colours &middot; stacked Actual/Forecast bars by FYFQ with an allowance reference line</td><td class="mn">BLOCK A</td></tr>
+        <tr><td><b>Active Orders</b></td><td>Open lines table sorted by DAYS_TO_SHIP, red when overdue &middot; ship-bucket histogram &middot; a &ldquo;stale backlog&rdquo; view filtered to DAYS_STALE not null &mdash; that is the cancellation queue</td><td class="mn">BLOCK B</td></tr>
+        <tr><td><b>3P Vendor Spend</b></td><td>Spend by vendor with CURRENCY as a required filter defaulted to USD/Assumed-USD &middot; requisition detail &middot; renewal cadence table titled &ldquo;inferred&rdquo;, highlighted past 300 days</td><td class="mn">BLOCK C &middot; C2</td></tr>
+        <tr><td><b>Raw Data &amp; Review</b></td><td>Order audit table &middot; DQ element filtered to DQ_ISSUE not null &middot; department scope review</td><td class="mn">BLOCK D &middot; E</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ============ 06 FIRST RUN ============ -->
+<section class="blk">
+  <div class="sechead">
+    <span class="eyebrow">Section 06</span>
+    <h2>Your first run: what to expect, what to close out</h2>
+    <div class="rule"></div>
+  </div>
+
+  <div class="stack g14">
+    <div class="step"><span class="sn">1</span><div>
+      <h3>Checkpoints that must tie exactly</h3>
+      <p>FY26 Q1 CapEx <b>$233,021.38 / 36 orders</b>, FY26 Q2 CapEx <b>$111,284.74 / 12</b>, SO 5017336 at <b>$32,989.69</b> in Block D. These are cent-exact on both your prior run and mine today; if any differ, a filter got changed.</p>
+    </div></div>
+    <div class="step"><span class="sn">2</span><div>
+      <h3>Numbers that will differ from your v2 doc, correctly</h3>
+      <p>Your doc showed forecast inside FY26 Q3/Q4 &mdash; quarters now closed. The floor moves that money into the open quarter, so expect FY26 Q4 to show only what actually shipped, and the still-open backlog (the 7830 family, $181,150.29 on the EBS side) in the current quarter. On your access the Fusion pipeline stacks on top, through FY27 Q2 and beyond. Every quarter through FY28 shows a row even at zero.</p>
+    </div></div>
+    <div class="step"><span class="sn">3</span><div>
+      <h3>Decide the 7830 backlog</h3>
+      <p>Every open pre-cutover line is months past its scheduled date. Cancel the stale lines and those four orders back-date to their real last shipment in FY26 Q2/Q3 on the next refresh; leave them and they sit in the current quarter as forecast. Either is defensible &mdash; the dashboard now just tells the truth about whichever you choose.</p>
+    </div></div>
+    <div class="step"><span class="sn">4</span><div>
+      <h3>Test EDNA_PURCHASE_ORDER under your login</h3>
+      <p><span class="mono">SELECT COUNT(*) FROM EDNA.CONS_DATA_MART.EDNA_PURCHASE_ORDER</span> in a scratch Sigma element. Non-zero and <span class="mono">End Of Service Date</span> populated for your service POs means a real renewal radar replaces the inferred one. Zero rows means the same row policy that blocks my connection blocks you &mdash; that is the one access request worth making, to the EDNA team.</p>
+    </div></div>
+    <div class="step"><span class="sn">5</span><div>
+      <h3>Three sign-offs to collect, none blocking</h3>
+      <p>Finance: &ldquo;account starting 2 is CapEx, otherwise OpEx&rdquo; as a standing rule, and whether the FY26 Q4 overrun your doc surfaced ($430,080 vs $300,000) is real overspend or an allowance change. Procurement: confirm currency code <span class="mono">'0'</span> means USD &mdash; your Ekahau $80,775, a known-USD contract, carries code '0', which is strong evidence but not confirmation.</p>
+    </div></div>
+  </div>
+
+  <div class="call okc" style="margin-top:26px">
+    <h4>Steady state</h4>
+    <p>Open the workbook and it is current &mdash; no refresh sequence, no files, no folders, nothing typed. New orders appear when they hit the order system, cancellations reflect themselves and back-date their orders, the allowance lives in one VALUES clause, and the two review elements tell you what to chase: stale backlog to cancel, and spend coded to your departments that does not look like yours. When the requisition front end is automated, the only lag left is order entry to system, and that is the workflow you are already fixing.</p>
+  </div>
+</section>
+
+</div>
+
+</body></html>
