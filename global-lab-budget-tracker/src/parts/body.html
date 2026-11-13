@@ -102,7 +102,7 @@
   <section class="sec" id="tp-sec">
     <div class="sec-h"><div><h2 id="tp-title">Third-party requisitions</h2><p id="tp-sub"></p></div></div>
     <div class="tiles" id="tp-tiles"></div>
-    <div class="tbl-wrap"><table id="tptable"><thead><tr><th>Vendor</th><th>Requisition</th><th>Dept</th><th>Account</th><th>Envelope</th><th class="r">Amount</th><th>Ccy</th><th class="r">USD this qtr</th><th>Lands</th><th>Project</th><th>Approved</th></tr></thead><tbody></tbody></table></div>
+    <div class="tbl-wrap"><table id="tptable"><thead><tr><th>Vendor</th><th>Requisition</th><th>Requester</th><th>Budget</th><th>Dept</th><th>Account</th><th>Envelope</th><th class="r">Amount</th><th>Ccy</th><th class="r">USD this qtr</th><th>Lands</th><th>Project</th><th>Approved</th></tr></thead><tbody></tbody></table></div>
   </section>
 
   <section class="sec" id="ct-sec">
@@ -128,7 +128,8 @@
       </div>
       <div>
         <p><b>Third-party spend.</b> From EDNA procurement at requisition grain. Converted to USD at the rates in settings.js. Lands in the quarter it was approved, unless settings say it is still open (it then rolls with the current quarter until received) or on hold. Currency code 0 is inferred from the requisition number format.</p>
-        <p><b>Support and maintenance.</b> Anne's rule: support at or above $30,000 a year goes to prepaid and is amortized monthly over the term; below that it is expensed when posted. Terms come from the contract list in settings.js.</p>
+        <p><b>Support and maintenance.</b> Counted as OpEx and spread monthly across the term, whatever account it was coded to. Months before approval catch up in the approval quarter. GL timing follows Anne's rule instead: $30,000 a year or more is prepaid and amortized; less is expensed when posted. Terms come from the contract list in settings.js.</p>
+        <p><b>Whose budget.</b> Only third-party lines marked as yours count against the allowance. Lines raised by others in your departments are shown and totaled on the watch list until you place them.</p>
         <p><b>Status.</b> Green below 70% of the allowance, Yellow 70 to 90, Red 90 to 100, Over above 100. Allowances come from settings.js by fiscal year.</p>
         <p><b>Order search.</b> Typing an SO or part number searches every order loaded on this page and pauses the quarter filters. Press Enter or use Search Snowflake to pull an order that isn't loaded. Those rows are tagged Snowflake and never change a total.</p>
       </div>

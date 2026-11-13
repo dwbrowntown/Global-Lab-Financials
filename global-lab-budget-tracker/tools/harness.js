@@ -93,7 +93,8 @@ const click = (w, sel) => { const el = w.document.querySelector(sel); if (!el) {
   ok(chennai && chennai.includes('Meets'), 'Chennai project should meet the asset test');
   const g = ev("projectGroups().find(g=>g.p==='7000400')");
   facts.chennai = { orders: g.orders.length, tpLines: g.tp.length, tpReqs: [...new Set(g.tp.map(t => t.r))].sort(), capex: Math.round(g.capex), possibleMembers: g.maybe.length };
-  ok(g.orders.length === 82, 'Chennai should hold 82 coded orders, has ' + g.orders.length);
+  ok(g.orders.filter(o => o.proj === '7000400').length === 82, 'Chennai should hold 82 coded orders');
+  ok(g.orders.length === 85, 'Chennai should hold 82 coded + 3 reclassed orders, has ' + g.orders.length);
   ok(!g.tp.some(t => t.r === 'PRIN10000235'), 'held requisition counted in project');
   // expand and collapse a project row
   click(w, '#prjtable tbody tr.g'); ok(qa('#prjtable tr.detail').length === 1, 'project row did not expand');
@@ -101,7 +102,7 @@ const click = (w, sel) => { const el = w.document.querySelector(sel); if (!el) {
   // 5. watch list facts
   const watch = qa('#watch .w h3').map(h => h.textContent);
   facts.watch = watch;
-  for (const must of ['Third-party data is older', 'Requisitions on hold', 'Account code to correct', 'Third-party CapEx in FY27 Q2', 'CapEx orders under', 'Contracts coming up for renewal'])
+  for (const must of ['Third-party data is older', 'Requisitions on hold', 'Account code to correct', 'Third-party CapEx in FY27 Q2', 'CapEx orders under', 'Contracts coming up for renewal', 'waiting on your call', 'outside your budget', 'Reclasses you approved', 'Orders left out'])
     ok(watch.some(t => t.includes(must)), 'watch list missing: ' + must);
   ok(!watch.some(t => t.includes('out of date')), 'fresh snapshot flagged as stale');
 
@@ -111,7 +112,36 @@ const click = (w, sel) => { const el = w.document.querySelector(sel); if (!el) {
   ok(tpRows > 0, 'no third-party rows in FY27 Q2');
   ok(q('#tp-sub').textContent.includes('carried'), 'third-party age note missing');
   facts.contracts = qa('#cttable tbody tr').map(tr => [...tr.cells].map(c => c.textContent.trim()).filter((_, i) => [1, 4, 5, 9].includes(i)).join(' | '));
-  ok(facts.contracts.length === 13, 'contract rows ' + facts.contracts.length);
+  ok(facts.contracts.length === 12, 'contract rows ' + facts.contracts.length);
+
+  // 6b. build 3 rules (Dan, Nov 13)
+  click(w, '#m-budget'); click(w, '#c-all');
+  const r3 = ev(`(()=>{const m=v=>Math.round(v);
+    const cr=D.orders.filter(o=>o.status==='credit');
+    const viavi=D.tp.filter(t=>t.r==='PRUS10002240');
+    const maint=D.tp.filter(t=>t.kind==='maint');
+    return {
+      creditsInClosedQuarter: cr.filter(o=>qKey(o.rq)<qKey(D.CURQ)&&o.nOpen>0).map(o=>o.so),
+      fy27q1CapexForecast: m(envelope('FY27Q1','CapEx').fc),
+      excluded55170: D.orders.some(o=>o.so==='55170')?'still counted':'excluded',
+      overrides: D.orders.filter(o=>o.ov&&o.ov.cat).map(o=>o.so+':'+o.cat),
+      viaviCounted: viavi.some(t=>tpCounts(t)),
+      maintCapex: maint.filter(t=>t.cat!=='OpEx').length,
+      notMineCounted: D.tp.filter(t=>t.owner==='notMine'&&tpCounts(t)).length,
+      checkCounted: D.tp.filter(t=>t.owner==='check'&&tpCounts(t)).length,
+      owners: D.tp.reduce((a,t)=>(a[t.owner]=(a[t.owner]||0)+1,a),{}),
+      maintSpreadKeysight: D.tp.filter(t=>t.r==='PRUS10000003').flatMap(t=>t.sb.map(s=>s.q)).filter((v,i,a)=>a.indexOf(v)===i),
+      chennaiQ: Object.fromEntries(['PRIN10000209','PRIN10000210','PRIN10000213'].map(r=>[r,D.tp.find(t=>t.r===r).sb.map(s=>s.q+':'+m(s.usd)).join(' ')])),
+      env: Object.fromEntries(['FY27Q1','FY27Q2','FY27Q3','FY27Q4'].map(q=>[q,{capex:m(envelope(q,'CapEx').tot),opex:m(envelope(q,'OpEx').tot)}]))
+    };})()`);
+  facts.build3 = r3;
+  ok(r3.creditsInClosedQuarter.length === 0, 'unreceived credits still in a closed quarter');
+  ok(r3.fy27q1CapexForecast === 0, 'closed FY27 Q1 still carries forecast');
+  ok(r3.excluded55170 === 'excluded', 'SO 55170 not excluded');
+  ok(!r3.viaviCounted, 'rejected PRUS10002240 is counted');
+  ok(r3.maintCapex === 0, 'maintenance left in CapEx');
+  ok(r3.notMineCounted === 0 && r3.checkCounted === 0, 'third-party not marked yours is counted');
+  ok(r3.maintSpreadKeysight.length > 1, 'Keysight maintenance not spread');
 
   // 7. search still works across quarters
   const fq = q('#f-q'); fq.value = '5520-48T'; fq.dispatchEvent(new w.Event('input'));

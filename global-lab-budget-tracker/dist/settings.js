@@ -3,7 +3,7 @@
    Edit here, rebuild with tools/build.py, and republish. Status values: 'confirmed' (Finance signed off),
    'pending' (in use, waiting on Finance), 'proposed' (Dan's working assumption, not yet confirmed). */
 window.LAB_SETTINGS = {
-  version: '2026-11-13',
+  version: '2026-11-13b',
 
   /* Quarterly allowance by fiscal year. 'default' applies to any year not listed. */
   allowances: {
@@ -43,8 +43,8 @@ window.LAB_SETTINGS = {
 
   /* USD per unit of currency. Provisional until Finance gives the rate source to use. */
   fx: {
-    status: 'provisional', asOf: '2026-11-13', note: 'Provisional planning rates, not Finance rates.',
-    rates: { USD: 1, INR: 0.0113, EUR: 1.16, GBP: 1.33, JPY: 0.0066, BRL: 0.185 }
+    status: 'provisional', asOf: '2026-11-13', note: 'Provisional planning rates, not Finance rates. INR uses the rupee rate Dan used for the Chennai colo quote on Sep 21 (95.85 per USD).',
+    rates: { USD: 1, INR: 0.010433, EUR: 1.16, GBP: 1.33, JPY: 0.0066, BRL: 0.185 }
   },
 
   /* Requisitions with currency code 0: the currency is inferred from the requisition number format. */
@@ -70,27 +70,61 @@ window.LAB_SETTINGS = {
   },
 
   /* Where a requisition's cost lands when it is not the approval date.
-     land: 'open' rolls with the current quarter until it is received, like a past-due order. hold: excluded from totals. */
+     land: 'open' rolls with the current quarter until it is received, like a past-due order.
+     date: planned receipt date. hold: excluded from every total. */
   tpLanding: {
-    'PRIN10000209': { land: 'open', note: 'Ship date pending, per Dan Oct 20.' },
-    'PRIN10000210': { land: 'open', note: 'Ship date pending, per Dan Oct 20.' },
-    'PRIN10000213': { land: 'open', note: 'Ship date pending, per Dan Oct 20.' },
-    'PRIN10000235': { hold: true, note: 'No PO issued. Dan is checking whether it duplicates PRIN10000209.' }
+    'PRIN10000210': { land: 'open', note: 'Timing plan approved by Dan Nov 13: Palo Alto PA-3420s received in FY27 Q2.' },
+    'PRIN10000209': { date: '2027-01-15', note: 'Timing plan approved by Dan Nov 13: Lantronix received in FY27 Q3. Confirm with procurement.' },
+    'PRIN10000213': { date: '2027-01-15', note: 'Timing plan approved by Dan Nov 13: HPE DL380s received in FY27 Q3. Confirm with procurement.' },
+    'PRIN10000235': { hold: true, note: 'No PO issued. Dan is checking whether it duplicates PRIN10000209 (unit price differs: about 455K vs 2.15M INR).' },
+    'PRUS10002240': { hold: true, note: 'Returned and rejected by Corporate Procurement as a duplicate requisition (Charles Pitchaimani, Aug 27; confirmed in the Duplicate Keysight PO thread).' }
+  },
+
+  /* Whose budget a requisition belongs to. Only 'mine' counts against the lab allowance.
+     'check' is shown with its total so Dan can place it; 'notMine' is shown but never counted.
+     Approver names are not readable in EDNA on this connection, so this is set from the requester and Dan's mailbox. */
+  tpOwner: {
+    byRequester: {
+      'Dan Brown': 'mine',
+      'Scott Groff': 'mine',
+      'Kathryn Darbyshire': 'notMine'
+    },
+    byReq: {},
+    notes: {
+      'Scott Groff': 'GTAC lab requisitions from before Dan took over from Scott.',
+      'Kathryn Darbyshire': 'Training budget ($82K earmarked; Colossyan is training content), per DJ Sep 23.'
+    },
+    default: 'check'
+  },
+
+  /* Per-order changes Dan has approved that EDNA does not show yet (the GL reclass is Finance's step). */
+  orderOverrides: {
+    '36576': { cat: 'CapEx', project: '7000400', status: 'requested', note: 'Chennai Training Lab gear coded to OpEx 87165. Reclass to CapEx under 7000400 approved by Dan Nov 13; Finance to reclass.' },
+    '36577': { cat: 'CapEx', project: '7000400', status: 'requested', note: 'Chennai Training Lab gear coded to OpEx 87165. Reclass to CapEx under 7000400 approved by Dan Nov 13; Finance to reclass.' },
+    '36579': { cat: 'CapEx', project: '7000400', status: 'requested', note: 'Chennai Training Lab gear coded to OpEx 87165. Reclass to CapEx under 7000400 approved by Dan Nov 13; Finance to reclass.' },
+    '46941': { cat: 'OpEx', status: 'requested', note: 'XSE-600 under $5K with no project: code to OpEx 87165 to match SO 47169. Approved by Dan Nov 13.' },
+    '47326': { cat: 'OpEx', status: 'requested', note: 'XSE-600 under $5K with no project: code to OpEx 87165 to match SO 47169. Approved by Dan Nov 13.' }
+  },
+
+  /* Orders left out of every total. */
+  excludeOrders: {
+    '55170': 'The two 7830-32CE switches were taken off and will be ordered later due to delays (Dan, Nov 13). Ask Order Management to cancel the lines.'
   },
 
   /* Support, maintenance and subscription terms. Seeded from Brandon's 3P Requisitions sheet on the Lab Operations
-     SharePoint (Maintenance column and MPA dates) and Dan's Oct 20 note. amount is in the contract currency. */
+     SharePoint (Maintenance column and MPA dates) and Dan's Oct 20 note. amount is in the contract currency.
+     Budget rule (Dan, Nov 13): maintenance is OpEx and is spread monthly across its term, whatever account it was coded to.
+     GL timing follows Anne's rule instead: $30K a year or more is prepaid and amortized; less is expensed when posted. */
   contracts: [
     { ref: 'PRUS10000003', vendor: 'Keysight', what: 'Test equipment maintenance', start: '2026-02-01', end: '2027-01-31', amount: 84981, ccy: 'USD', source: '3P Requisitions sheet' },
     { ref: 'PRIE10000088', vendor: 'Scaltel Gruppe', what: 'Software and maintenance', start: '2026-08-01', end: '2027-01-31', amount: 164451, ccy: 'EUR', source: '3P Requisitions sheet' },
     { ref: 'PRUS10000160', vendor: 'When I Work', what: 'Software licensing', start: '2026-02-06', end: '2027-02-07', amount: 14280, ccy: 'USD', source: '3P Requisitions sheet' },
     { ref: '600946', vendor: 'Yorktel', what: 'AV equipment maintenance, Reading', start: '2025-11-10', end: '2026-12-19', amount: 9984, ccy: 'GBP', source: '3P Requisitions sheet' },
     { ref: 'PRUS10002239', vendor: 'Keysight', what: 'Lab equipment support', start: '2026-07-27', end: '2027-07-26', amount: 8344, ccy: 'USD', source: '3P Requisitions sheet' },
-    { ref: 'PRUS10002240', vendor: 'Viavi Solutions', what: 'Coded to 20050, term dates on file', start: '2026-07-01', end: '2027-06-30', amount: 65290, ccy: 'USD', source: '3P Requisitions sheet', note: 'Has a support term but is coded to CapEx. Check whether Anne reclassed it.' },
     { ref: 'PRIE10000132', vendor: 'Infoguard Com-Sys', what: 'Software maintenance (contract 5-01693520)', start: '2025-01-01', end: '2025-12-31', amount: 147358, ccy: 'EUR', source: '3P Requisitions sheet', note: 'Approved Sep 2026 against a 2025 term. Confirm the renewal term.' },
     { ref: 'PRIE10000104', vendor: 'Jcubedata', what: 'Software maintenance', start: '', end: '', amount: 64127, ccy: 'USD', source: '3P Requisitions sheet' },
     { ref: '10308262', vendor: 'Spirent Communications', what: 'Software and equipment maintenance', start: '', end: '', amount: 71139, ccy: 'USD', source: '3P Requisitions sheet' },
-    { ref: '10313585', vendor: 'QA Cafe', what: 'Software maintenance', start: '', end: '', amount: 30006, ccy: 'USD', source: '3P Requisitions sheet' },
+    { ref: '10313585', vendor: 'QA Cafe', what: 'Software maintenance', start: '', end: '', amount: 30006, ccy: 'USD', accounts: ['87160'], source: '3P Requisitions sheet', note: 'The $11,500 line on 20050 is equipment, not maintenance.' },
     { ref: '10312566', vendor: 'Eve-NG', what: 'Software licensing', start: '', end: '', amount: 14256, ccy: 'USD', source: '3P Requisitions sheet' },
     { ref: '10311997', vendor: '27 Virtual Consulting', what: 'Software maintenance', start: '', end: '', amount: 17574, ccy: 'USD', source: '3P Requisitions sheet' },
     { ref: 'CDRouter', vendor: 'QA Cafe', what: 'CDRouter subscription renewal', start: '', end: '', amount: 0, ccy: 'USD', source: '3P Requisitions sheet' }
