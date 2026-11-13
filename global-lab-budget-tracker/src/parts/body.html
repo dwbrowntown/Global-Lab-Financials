@@ -1,0 +1,138 @@
+<div class="wrap">
+  <header class="top">
+    <div>
+      <div class="eyebrow">Global Lab Operations · Depts 7030 · 7110 · 7120 · 7130 · 7140</div>
+      <h1>Global Lab Budget Tracker</h1>
+      <div class="sub" id="hdr-sub">ICO orders and third-party spend against the quarterly allowance. CapEx and OpEx are separate envelopes, never combined.</div>
+    </div>
+    <div class="fresh" id="fresh" role="status"><span class="dot"></span><span id="fresh-t">Snapshot</span><button id="fresh-b" type="button">Refresh from Snowflake</button></div>
+  </header>
+
+  <nav class="rail" aria-label="Choose a fiscal quarter">
+    <div class="qgroup" id="qgroup"></div>
+    <div class="modebox">
+      <span class="seglbl">Timing</span>
+      <div class="seg" role="group" aria-label="Cost timing">
+        <button id="m-budget" aria-pressed="true" title="Budget view: an order's full cost lands in the quarter its last part ships">Budget quarter</button>
+        <button id="m-gl" aria-pressed="false" title="GL view: each line's cost lands in the quarter that line ships, for tie-out to the GL">GL timing</button>
+        <button id="m-placed" aria-pressed="false" title="The quarter the order was placed">Order placed</button>
+      </div>
+      <span class="seglbl">Count</span>
+      <div class="seg" role="group" aria-label="What counts against the allowance">
+        <button id="c-none" aria-pressed="false" title="Internal orders only">Orders</button>
+        <button id="c-capex" aria-pressed="true" title="Internal orders plus third-party CapEx, converted to USD">+ 3P CapEx</button>
+        <button id="c-all" aria-pressed="false" title="Internal orders plus all third-party spend, converted to USD">+ all 3P</button>
+      </div>
+    </div>
+  </nav>
+
+  <section class="panel fq" aria-labelledby="fq-title">
+    <div class="fq-h"><h2 id="fq-title">Cost forecast by quarter</h2><span class="hint" id="fq-hint">Click any number to list every order behind it, open and closed.</span></div>
+    <div class="fq-wrap"><table id="qtable"></table></div>
+  </section>
+
+  <section class="grid2" id="envelopes" aria-label="Allowance envelopes"></section>
+
+  <section class="sec" id="orders-sec">
+    <div class="sec-h"><div><h2 id="orders-title">Orders</h2><p id="orders-sub"></p></div></div>
+    <div class="tiles" id="tiles"></div>
+    <div class="recon" id="recon"></div>
+    <div class="filters">
+      <select id="f-cat" aria-label="Envelope"><option value="">CapEx + OpEx</option><option>CapEx</option><option>OpEx</option></select>
+      <select id="f-dept" aria-label="Department"><option value="">All departments</option></select>
+      <input id="f-q" type="search" placeholder="Search SO or part, all quarters" aria-label="Search any SO or part number across all quarters" autocomplete="off">
+      <span class="count" id="f-count"></span>
+    </div>
+    <div class="tbl-wrap">
+      <table id="otable">
+        <thead><tr>
+          <th data-k="so">SO</th><th data-k="rq" title="The fiscal quarter this order's cost lands in">Budget qtr</th><th data-k="status">Status</th><th data-k="dept">Dept</th><th data-k="cat">Envelope</th><th data-k="proj">Project</th>
+          <th data-k="prog">Lines shipped</th><th data-k="shipped" class="r">Shipped value</th><th data-k="out" class="r">Not shipped</th>
+          <th data-k="hit" class="r" id="th-hit">Order total</th><th data-k="od">Ordered</th><th data-k="ss" title="Latest scheduled ship date of the lines still to ship. This is the planning date until an actual ship date posts.">Sched ship</th><th data-k="key">Lands on</th>
+        </tr></thead>
+        <tbody></tbody>
+        <tfoot></tfoot>
+      </table>
+    </div>
+  </section>
+
+  <section class="sec" id="parts-sec">
+    <div class="sec-h"><div><h2 id="parts-title">Parts still to ship</h2><p id="parts-sub">Every line that hasn't shipped, with the part's own cost and the full cost of its order. The whole order lands when its last part ships, so if one part slips, the order total moves with it.</p></div></div>
+    <div class="filters">
+      <div class="seg" role="group" aria-label="Which orders">
+        <button id="p-sel" aria-pressed="true">Selected quarter</button>
+        <button id="p-all" aria-pressed="false">All open orders</button>
+      </div>
+      <label class="chk"><input type="checkbox" id="p-late"> Past due only</label>
+      <span class="count" id="p-count"></span>
+    </div>
+    <div class="recon" id="p-recon"></div>
+    <div class="tbl-wrap">
+      <table id="ptable">
+        <thead><tr><th>SO</th><th>Part</th><th>Line status</th><th class="r">Qty owed</th><th class="r">Part cost</th><th class="r">Order total</th><th>Scheduled</th><th>Days late</th><th>Budget qtr</th><th>Dept</th></tr></thead>
+        <tbody></tbody><tfoot></tfoot>
+      </table>
+    </div>
+  </section>
+
+  <section class="sec">
+    <div class="sec-h"><div><h2>Quarter by quarter</h2><p id="chart-sub">Committed spend per envelope. Solid is closed orders, purple hatching is open orders carried at full value, blue hatching is third-party spend. The dashed red line is the allowance. Click a bar to list the orders behind it.</p></div></div>
+    <div class="grid2">
+      <div class="panel chart" id="ch-CapEx"></div>
+      <div class="panel chart" id="ch-OpEx"></div>
+    </div>
+  </section>
+
+  <section class="sec">
+    <div class="sec-h"><div><h2 id="dept-title">By department</h2><p id="dept-sub">Orders plus whatever third-party spend the Count setting includes, so these always sum to the envelopes above.</p></div></div>
+    <div class="tbl-wrap"><table id="dtable"><thead></thead><tbody></tbody><tfoot></tfoot></table></div>
+  </section>
+
+  <section class="sec" id="prj-sec">
+    <div class="sec-h"><div><h2>Projects and the asset test</h2><p>Finance capitalizes one asset per project per location, and an asset has to be over the threshold. Orders and requisitions are grouped by project code, so many small orders on one project count as one asset. Covers every quarter loaded on this page. Click a row to see what's in it.</p></div></div>
+    <div class="tiles" id="prj-tiles"></div>
+    <div class="tbl-wrap"><table id="prjtable"><thead></thead><tbody></tbody></table></div>
+  </section>
+
+  <section class="sec">
+    <div class="sec-h"><div><h2>Watch list</h2><p id="watch-sub">What could move the numbers, and what needs a call with Finance.</p></div></div>
+    <div class="watch" id="watch"></div>
+  </section>
+
+  <section class="sec" id="tp-sec">
+    <div class="sec-h"><div><h2 id="tp-title">Third-party requisitions</h2><p id="tp-sub"></p></div></div>
+    <div class="tiles" id="tp-tiles"></div>
+    <div class="tbl-wrap"><table id="tptable"><thead><tr><th>Vendor</th><th>Requisition</th><th>Dept</th><th>Account</th><th>Envelope</th><th class="r">Amount</th><th>Ccy</th><th class="r">USD this qtr</th><th>Lands</th><th>Project</th><th>Approved</th></tr></thead><tbody></tbody></table></div>
+  </section>
+
+  <section class="sec" id="ct-sec">
+    <div class="sec-h"><div><h2>Contracts and renewals</h2><p id="ct-sub"></p></div></div>
+    <div class="tiles" id="ct-tiles"></div>
+    <div class="tbl-wrap"><table id="cttable"><thead><tr><th>Reference</th><th>Vendor</th><th>What</th><th>Start</th><th>End</th><th class="r">Days left</th><th class="r">Amount</th><th class="r">Per year (USD)</th><th>Treatment</th><th>Status</th></tr></thead><tbody></tbody></table></div>
+  </section>
+
+  <details class="defs">
+    <summary>How the numbers are built</summary>
+    <div class="defs-grid">
+      <div>
+        <p><b>The budget rule.</b> An order's full cost sits in the fiscal quarter its last part ships. Costs are never split across quarters in the Budget quarter view.</p>
+        <p><b>GL timing.</b> Each line's cost sits in the quarter that line ships, which is how inventory relief posts to the GL. Use it to tie out to Finance's GL detail. Orders that ship across a quarter end show part of their cost in each quarter.</p>
+        <p><b>Shipped lines</b> use their actual ship date. <b>Unshipped lines</b> use their scheduled ship date. If that date has passed or is blank, the line counts as shipping today, so a late order stays in the current quarter and rolls forward until it actually ships.</p>
+        <p><b>Credits.</b> Return lines land in the quarter they're received, or the quarter they were posted until then.</p>
+      </div>
+      <div>
+        <p><b>Cost.</b> Item standard cost times ordered quantity. Line Amount USD is $0 on internal orders, so it isn't used.</p>
+        <p><b>Envelope.</b> From the approved account list in settings.js. An account not on the list falls back to the prefix rule (2xxxx CapEx, otherwise OpEx) and shows on the watch list until Finance places it.</p>
+        <p><b>Asset test.</b> Finance capitalizes a new asset over $5,000, one asset per project per location. CapEx with no project and under $5,000 is at risk of reclass to expense. OpEx over $5,000 with no project may belong in CapEx.</p>
+        <p><b>Scope.</b> Lines with a 5-digit account, not cancelled, expense dept starting 7030, 7110, 7120, 7130 or 7140. Open lines left on old Oracle EBS orders are excluded, since they were rebooked on Fusion orders at cutover.</p>
+      </div>
+      <div>
+        <p><b>Third-party spend.</b> From EDNA procurement at requisition grain. Converted to USD at the rates in settings.js. Lands in the quarter it was approved, unless settings say it is still open (it then rolls with the current quarter until received) or on hold. Currency code 0 is inferred from the requisition number format.</p>
+        <p><b>Support and maintenance.</b> Anne's rule: support at or above $30,000 a year goes to prepaid and is amortized monthly over the term; below that it is expensed when posted. Terms come from the contract list in settings.js.</p>
+        <p><b>Status.</b> Green below 70% of the allowance, Yellow 70 to 90, Red 90 to 100, Over above 100. Allowances come from settings.js by fiscal year.</p>
+        <p><b>Order search.</b> Typing an SO or part number searches every order loaded on this page and pauses the quarter filters. Press Enter or use Search Snowflake to pull an order that isn't loaded. Those rows are tagged Snowflake and never change a total.</p>
+      </div>
+    </div>
+  </details>
+  <div class="foot" id="foot"></div>
+</div>

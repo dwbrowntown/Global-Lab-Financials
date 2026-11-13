@@ -1,0 +1,680 @@
+// settings.js sets window.LAB_SETTINGS (business rules). data.js (rebuilt from Snowflake each Wednesday) sets window.LAB_DATA={date,tpDate,tpNote,O,TP}.
+const BUILD='{{BUILD}}';
+const CFG=window.LAB_SETTINGS||{};
+const LD=window.LAB_DATA||{};
+const SNAP_DATE=LD.date||'2026-09-25';
+const DEPTS={'7030':'Service Ops · Salem','7110':'LATAM TAC','7120':'Asia TAC · Chennai','7130':'EMEA TAC · Reading','7140':'Americas TAC'};
+const HIST={'FY25Q1':{CapEx:[4,186460.67,0],OpEx:[12,21822.29,0]},'FY25Q2':{CapEx:[7,225218.69,0],OpEx:[18,30105.07,0]},'FY25Q3':{CapEx:[6,182503.40,0],OpEx:[10,24595.42,0]},'FY25Q4':{CapEx:[18,226397.90,0],OpEx:[9,6546.67,0]}};
+const ASSET_MIN=CFG.assetMin||5000, AMORT_MIN=CFG.supportAmortizeMin||30000, STALE_DAYS=CFG.staleDays||8, RENEW_DAYS=CFG.renewalWindowDays||180;
+const FXR=(CFG.fx&&CFG.fx.rates)||{USD:1};
+
+/* ---------- helpers ---------- */
+const $=s=>document.querySelector(s);
+const fyq=d=>{const y=+d.slice(0,4),m=+d.slice(5,7);const fy=m>=7?y+1:y;const q=m<=3?3:m<=6?4:m<=9?1:2;return 'FY'+String(fy).slice(2)+'Q'+q;};
+const qKey=q=>+q.slice(2,4)*10+ +q.slice(5);
+const qLabel=q=>q.slice(0,4)+' '+q.slice(4);
+const qFY=q=>2000+ +q.slice(2,4);
+const qEnd=q=>{const fy=qFY(q),n=+q.slice(5);return [null,fy-1+'-09-30',fy-1+'-12-31',fy+'-03-31',fy+'-06-30'][n];};
+const nextQ=q=>{const n=+q.slice(5),fy=qFY(q);return n===4?'FY'+String(fy+1).slice(2)+'Q1':'FY'+q.slice(2,4)+'Q'+(n+1);};
+const money=(v,dec)=>{const f=dec?100:1;const n=Math.round(v*f)/f;const s=Math.abs(n).toLocaleString('en-US',{minimumFractionDigits:dec?2:0,maximumFractionDigits:dec?2:0});return (n<0?'−$':'$')+s;};
+const kfmt=v=>{const a=Math.abs(v);const s=a>=1e6?(a/1e6).toFixed(2)+'M':a>=1e3?(a/1e3).toFixed(a>=1e5?0:1)+'K':a.toFixed(0);return (v<0?'−$':'$')+s;};
+const MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const fmtD=d=>{if(!d)return '-';const [y,m,dd]=d.split('-');return dd+' '+MON[+m-1]+' '+y.slice(2);};
+const daysBetween=(a,b)=>Math.round((Date.parse(b)-Date.parse(a))/864e5);
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const localToday=()=>{const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');};
+const sum=(a,f)=>a.reduce((s,x)=>s+f(x),0);
+const LSLABEL={CLOSED:'Shipped',AWAITING_SHIPPING:'Awaiting shipping',AWAIT_SHIP:'Awaiting shipping',EN_SCHEDULED:'Scheduled',BOOKED:'Booked',AWAITING_FULFILLMENT:'Awaiting fulfilment',AWAIT_FLINE_AGGREGATE:'Awaiting fulfilment',PICKED:'Picked',AWAIT_RECEIVING:'Awaiting receipt'};
+const lsLabel=l=>l.ret?(l.shipped?'Return received':'Return · awaiting receipt'):(l.shipped?'Shipped':(LSLABEL[l.ls]||String(l.ls||'Open').replace(/_/g,' ').toLowerCase()));
+const tag=(cls,t,tip)=>`<span class="tag tag-${cls}"${tip?` title="${esc(tip)}"`:''}>${t}</span>`;
+
+/* ---------- settings lookups ---------- */
+const ACC=CFG.accounts||{};
+function acctInfo(a){const x=ACC[a];if(x)return x;return {cat:String(a)[0]==='2'?'CapEx':'OpEx',desc:'Not on the account list',status:'unmapped'};}
+function allowRec(q){const al=CFG.allowances||{};return al['FY'+q.slice(2,4)]||al.default||{CapEx:300000,OpEx:100000,status:'pending'};}
+const allowFor=(q,cat)=>allowRec(q)[cat];
+const PRJ=CFG.projects||{}, ASG=CFG.assign||{}, TPL=CFG.tpLanding||{};
+const prjName=c=>c?(PRJ[c]?PRJ[c].name:'Project '+c):'';
+function projOf(o){return o.proj||(ASG[o.so]&&ASG[o.so].project)||'';}
+function projSrc(o){return o.proj?'system':(ASG[o.so]?'assigned':'');}
+function inferCcy(req){for(const r of (CFG.currencyByReq||[])){if(new RegExp(r.re).test(req))return r.ccy;}return '';}
+const toUSD=(amt,ccy)=>FXR[ccy]!=null?amt*FXR[ccy]:null;
+function monthsBetween(a,b){return (+b.slice(0,4)-+a.slice(0,4))*12+(+b.slice(5,7)-+a.slice(5,7))+1;}
+function contractFor(ref){return (CFG.contracts||[]).find(c=>c.ref===ref);}
+function annualUSD(c){if(!c||!c.start||!c.end)return null;const u=toUSD(c.amount,c.ccy);if(u==null)return null;const m=Math.max(1,monthsBetween(c.start,c.end));return u/m*12;}
+
+/* ---------- model: the budget rule lives here ---------- */
+let D={today:SNAP_DATE,source:'snapshot',at:null,orders:[],tp:[],tpRaw:[],tpDate:LD.tpDate||SNAP_DATE,tpNote:LD.tpNote||'',QUARTERS:[],TREND:[],CURQ:''};
+
+function makeOrder(rows,today){
+  const f=rows[0];
+  const lines=rows.map(r=>{
+    const shipped=r.ret?!!(r.rcd||r.ls==='CLOSED'):!!r.asd;
+    let eff,past=false,late=null;
+    if(r.ret) eff=r.rcd||r.asd||r.od;                       // credits: quarter received, else quarter posted
+    else if(shipped) eff=r.asd;                              // shipped: actual ship date
+    else if(r.ssd&&r.ssd>=today) eff=r.ssd;                  // not shipped: scheduled ship date
+    else {eff=today;past=true;late=r.ssd?daysBetween(r.ssd,today):null;} // past due or blank: rolls forward to today
+    return {...r,shipped,eff,past,late,lq:fyq(eff)};
+  }).sort((a,b)=>(a.shipped===b.shipped?0:a.shipped?-1:1)||String(a.eff).localeCompare(String(b.eff))||a.pn.localeCompare(b.pn));
+  const hit=sum(lines,l=>l.c);
+  const shippedV=sum(lines.filter(l=>l.shipped),l=>l.c);
+  const nShip=lines.filter(l=>l.shipped).length, nOpen=lines.length-nShip;
+  const rd=lines.reduce((m,l)=>l.eff>m?l.eff:m,'');          // the order lands on its latest line date
+  const pastL=lines.filter(l=>l.past);
+  const allRet=lines.every(l=>l.ret);
+  const status=(hit<0||allRet)?'credit':nOpen===0?'closed':pastL.length?'stale':'open';
+  const acct=rows.reduce((m,r)=>r.acct>m?r.acct:m,'');
+  const proj=(rows.find(r=>r.proj)||{}).proj||'';
+  const od=rows.reduce((m,r)=>!m||r.od<m?r.od:m,'');
+  const la=lines.filter(l=>l.shipped).reduce((m,l)=>(l.asd||l.rcd||'')>m?(l.asd||l.rcd):m,'');
+  const os=lines.filter(l=>!l.shipped&&!l.ret&&l.ssd).reduce((m,l)=>l.ssd>m?l.ssd:m,'');
+  const lates=pastL.map(l=>l.late).filter(x=>x!==null);
+  const ai=acctInfo(acct);
+  return {so:f.so,dept:f.dept,geo:f.geo,shipto:f.shipto,acct,acctStatus:ai.status,proj,cat:ai.cat,od,la,os,rd,lines,hit,shipped:shippedV,out:hit-shippedV,
+    nShip,nLines:lines.length,nOpen,status,rq:fyq(rd),pq:fyq(od),spend:nOpen===0?'A':'F',
+    daysLate:lates.length?Math.max(...lates):null,undated:pastL.some(l=>l.late===null),key:rd,
+    ss:os||lines.filter(l=>!l.ret&&l.ssd).reduce((m,l)=>l.ssd>m?l.ssd:m,'')};
+}
+function makeTP(r,today){
+  let ccy=r.ccy,inferred=false;
+  if(!FXR[ccy]){const g=inferCcy(r.r);if(g){ccy=g;inferred=true;}}
+  const usd=toUSD(r.amt,ccy);
+  const ai=acctInfo(r.a);
+  const asg=ASG[r.r];
+  const proj=r.proj||(asg&&asg.project)||'';
+  const L=TPL[r.r]||{};
+  const C=contractFor(r.r);
+  const ann=annualUSD(C);
+  const fq=fyq(r.date);
+  let slices=[],landTxt='',kind='approved';
+  if(L.hold){kind='hold';landTxt='On hold';}
+  else if(usd==null){kind='noccy';landTxt='No USD rate';}
+  else if(C&&ann!=null&&ann>=AMORT_MIN&&C.end>=r.date){   // a term that ended before approval is not amortized into closed quarters
+    kind='amort';const m=Math.max(1,monthsBetween(C.start,C.end));const per=usd/m;const by={};
+    for(let i=0;i<m;i++){const y=+C.start.slice(0,4)+Math.floor((+C.start.slice(5,7)-1+i)/12),mo=(+C.start.slice(5,7)-1+i)%12+1;const q=fyq(y+'-'+String(mo).padStart(2,'0')+'-01');by[q]=(by[q]||0)+per;}
+    slices=Object.entries(by).map(([q,v])=>({q,usd:v}));landTxt='Prepaid, amortized '+fmtD(C.start)+' to '+fmtD(C.end);
+  }
+  else if(L.land==='open'){kind='open';slices=[{q:fyq(today),usd}];landTxt='Open, rolls until received';}
+  else if(L.date){kind='moved';slices=[{q:fyq(L.date),usd}];landTxt='Expected '+fmtD(L.date);}
+  else {slices=[{q:fq,usd}];landTxt='Approval quarter';}
+  return {...r,ccy2:ccy,inferred,usd,cat:ai.cat,acctStatus:ai.status,proj,projSrc:r.proj?'system':(asg?'assigned':''),kind,landTxt,note:L.note||'',fq,slices};
+}
+function build(rows,tpRows,today){
+  const by=new Map();rows.forEach(r=>{if(!by.has(r.so))by.set(r.so,[]);by.get(r.so).push(r);});
+  const orders=[...by.values()].map(g=>makeOrder(g,today));
+  const CURQ=fyq(today), curFY=qFY(CURQ);
+  const tp=tpRows.map(r=>makeTP(r,today));
+  const maxFY=Math.max(curFY,...orders.map(o=>qFY(o.rq)),...tp.flatMap(t=>t.slices.map(s=>qFY(s.q))));
+  const QUARTERS=[];for(let fy=curFY-1;fy<=Math.min(maxFY,curFY+2);fy++)for(let q=1;q<=4;q++)QUARTERS.push('FY'+String(fy).slice(2)+'Q'+q);
+  const TREND=[...Object.keys(HIST).filter(q=>qFY(q)===curFY-2),...QUARTERS];
+  D={...D,today,orders,tp,tpRaw:tpRows,QUARTERS,TREND,CURQ};
+}
+function snapshotRows(){
+  const out=[];
+  (LD.O||[]).forEach(r=>{const [so,dept,geo,shipto,acct,od,proj]=r;r[9].forEach(l=>out.push({so,dept,geo,shipto,acct,od,proj:proj||'',pn:l[0],ls:l[1],q:l[2],sq:l[3],c:l[4],asd:l[5]||'',ssd:l[6]||'',rcd:l[7]||'',ret:l[8]===1||l[2]<0}));});
+  return out;
+}
+const snapshotTP=()=>(LD.TP||[]).map(r=>({v:r[0],r:r[1],rq:r[2],d:r[3],a:r[4],ad:r[5],amt:r[6],ccy:r[7],date:r[8],na:!!r[9],proj:r[10]||''}));
+
+/* ---------- what counts in a quarter ---------- */
+const gl=()=>S.mode==='gl';
+function amtIn(o,q){return gl()?sum(o.lines.filter(l=>l.lq===q),l=>l.c):(o.rq===q?o.hit:0);}
+function splitIn(o,q){if(gl()){const ls=o.lines.filter(l=>l.lq===q);return [sum(ls.filter(l=>l.shipped),l=>l.c),sum(ls.filter(l=>!l.shipped),l=>l.c)];}return o.rq===q?(o.spend==='A'?[o.hit,0]:[0,o.hit]):[0,0];}
+function touches(o,q){return gl()?o.lines.some(l=>l.lq===q):o.rq===q;}
+const tpCounts=t=>t.kind!=='hold'&&t.kind!=='noccy'&&(S.tpMode==='all'||(S.tpMode==='capex'&&t.cat==='CapEx'));
+function tpIn(q,cat,dept){return sum(D.tp.filter(t=>tpCounts(t)&&t.cat===cat&&(!dept||t.d===dept)),t=>sum(t.slices.filter(s=>s.q===q),s=>s.usd));}
+function tpItemsIn(q,cat){return D.tp.filter(t=>tpCounts(t)&&(!cat||t.cat===cat)&&t.slices.some(s=>s.q===q));}
+function envelope(q,cat){
+  if(HIST[q]){const h=HIST[q][cat];return {n:h[0],act:h[1],fc:h[2],ord:h[1]+h[2],tp:0,nT:0,tot:h[1]+h[2],nA:h[0],nF:0};}
+  const os=D.orders.filter(o=>o.cat===cat&&touches(o,q));
+  let act=0,fc=0,nA=0,nF=0;os.forEach(o=>{const [a,f]=splitIn(o,q);act+=a;fc+=f;if(gl()){if(a)nA++;if(f)nF++;}else{o.spend==='A'?nA++:nF++;}});
+  const tp=tpIn(q,cat),nT=tpItemsIn(q,cat).length;
+  return {n:os.length,act,fc,ord:act+fc,tp,nT,tot:act+fc+tp,nA,nF};
+}
+const statusOf=(tot,allow)=>tot>allow?['Over','s-over']:tot>allow*.9?['Red','s-red']:tot>allow*.7?['Yellow','s-yellow']:Math.abs(tot)<0.005?['No spend','s-none']:['Green','s-green'];
+
+/* ---------- live data from Snowflake (viewer's own connector) ---------- */
+const SERVER='Snowflake', TOOL='sales-sql-executor';
+const DEPT_IN="('7030','7110','7120','7130','7140')";
+const LINE_COLS=`"Order Number" SO, LEFT("Expense Dept",4) DEPT, TRIM("Ship To Site Region") GEO, TRIM(REPLACE("Ship To Party Name",CHR(9),' ')) SHIPTO, "Account" ACCT, COALESCE(NULLIF(NULLIF(NULLIF(TRIM("Project"),''),'0'),'00000'),'') PROJ, TO_CHAR("Order Date") OD, "Ordered Item" PN, "Line Status" LS, "Ordered Quantity" Q, COALESCE("Shipped Quantity",0) SQ, ROUND(COALESCE("Item Standard Cost",0)*"Ordered Quantity",2) C, TO_CHAR("Actual Ship Date") ASD, TO_CHAR("Schedule Ship Date") SSD, TO_CHAR("Receipt Date") RCD, IFF("Line Type" ILIKE '%RETURN%' OR "Ordered Quantity"<0,1,0) RET`;
+const LINE_WHERE=`"Account" RLIKE '^[0-9]{5}$' AND "Line Status" <> 'CANCELED' AND LEFT("Expense Dept",4) IN ${DEPT_IN} AND NOT (COALESCE("Source System Code",'')='ORACLE_EBS' AND "Actual Ship Date" IS NULL AND "Receipt Date" IS NULL)`;
+// keep ORDER_SQL and TP_SQL in step with sql/orders.sql and sql/procurement.sql
+const ORDER_SQL=start=>`WITH l AS (SELECT ${LINE_COLS} FROM EDNA.CONS_INSIGHTS_MART.EDNA_ORDER_MANAGEMENT_REPORT WHERE ${LINE_WHERE}) SELECT * FROM l WHERE SO IN (SELECT SO FROM l GROUP BY SO HAVING MAX(COALESCE(ASD,RCD,SSD,OD)) >= '${start}' OR SUM(IFF(ASD IS NULL AND RCD IS NULL,1,0))>0) ORDER BY SO`;
+const F=(f,e)=>`COALESCE(NULLIF("${f}",''),"${e}")`;
+const TP_SQL=start=>`SELECT "Party Name" V, "Requisition Number" R, "Requester Name" RQ, LEFT(${F('Fusion GL Dept Code','EBS GL Dept Code')},4) D, ${F('Fusion GL Acct Code','EBS GL Acct Code')} A, ${F('Fusion GL Acct Desc','EBS GL Acct Desc')} AD, "Amount" AMT, COALESCE(NULLIF("Invoice Currency Code",'0'),'Code 0') CCY, TO_CHAR(COALESCE("PR Approved Date","Creation Date")::DATE) DT, IFF("PR Approved Date" IS NULL,1,0) NA, COALESCE(NULLIF("Fusion Project Desc",''),"EBS Project Desc",'') PROJ FROM EDNA.CONS_INSIGHTS_MART.EDNA_PROCUREMENT WHERE LEFT(${F('Fusion GL Dept Code','EBS GL Dept Code')},4) IN ${DEPT_IN} AND UPPER("Party Name") NOT LIKE '%EXTREME NETWORKS%' AND "Amount" IS NOT NULL AND ${F('Fusion GL Acct Code','EBS GL Acct Code')} IN ('20050','20020','20040','87100','87120','87140','87160','87165','89150','89170','89180','89260','89270') AND COALESCE("PR Approved Date","Creation Date") >= '${start}' ORDER BY DT DESC`;
+
+// Find a Snowflake result set anywhere in whatever envelope the connector returns.
+function findRS(p,depth){
+  if(depth>6||p==null)return null;
+  if(typeof p==='string'){const t=p.trim();if(t[0]==='{'||t[0]==='['){try{return findRS(JSON.parse(t),depth+1);}catch(e){return null;}}return null;}
+  if(Array.isArray(p)){for(const x of p){const r=findRS(x,depth+1);if(r)return r;}return null;}
+  if(typeof p==='object'){
+    if(p.resultSetMetaData&&Array.isArray(p.data))return p;
+    if(p.metadata&&p.metadata.rowType&&Array.isArray(p.data))return {resultSetMetaData:p.metadata,data:p.data};
+    for(const k of ['result_set','resultSet','structuredContent','payload','content','text','result']){if(k in p){const r=findRS(p[k],depth+1);if(r)return r;}}
+    for(const k in p){const r=findRS(p[k],depth+1);if(r)return r;}
+  }
+  return null;
+}
+function parseSf(p){
+  const rs=findRS(p,0);
+  if(!rs){let ex='';try{ex=JSON.stringify(p).slice(0,140);}catch(e){ex=String(p).slice(0,140);}throw {code:'unreadable',excerpt:ex};}
+  const names=rs.resultSetMetaData.rowType.map(t=>t.name.toUpperCase());
+  return rs.data.map(row=>Object.fromEntries(names.map((n,i)=>[n,row[i]])));
+}
+async function runSql(sql){
+  const mcp=await window.claude?.use?.('mcp');
+  if(!mcp) throw {code:'unavailable'};
+  let r;
+  if(typeof mcp.callTool==='function'){r=await mcp.callTool(SERVER,TOOL,{sql});r=(r&&typeof r==='object'&&'payload' in r)?r.payload:r;}
+  else{const s=await mcp.server(SERVER);r=await s[TOOL]({sql});}
+  return parseSf(r);
+}
+const s=v=>v==null?'':String(v);
+const lineRow=r=>({so:s(r.SO),dept:s(r.DEPT),geo:s(r.GEO),shipto:s(r.SHIPTO),acct:s(r.ACCT),proj:s(r.PROJ),od:s(r.OD).slice(0,10),pn:s(r.PN),ls:s(r.LS),q:+r.Q,sq:+r.SQ,c:+r.C,asd:s(r.ASD).slice(0,10),ssd:s(r.SSD).slice(0,10),rcd:s(r.RCD).slice(0,10),ret:+r.RET===1});
+async function refresh(){
+  const btn=$('#fresh-b');btn.disabled=true;setFresh('load');
+  try{
+    const today=localToday();const start=(qFY(fyq(today))-2)+'-07-01';
+    const lr=await runSql(ORDER_SQL(start));
+    if(!lr.length) throw {code:'empty'};
+    let tp=D.tpRaw,tpLive=false,tpWhy='';
+    try{const tr=await runSql(TP_SQL(start));
+      if(tr.length){tp=tr.map(r=>({v:s(r.V),r:s(r.R),rq:s(r.RQ),d:s(r.D),a:s(r.A),ad:s(r.AD),amt:+r.AMT,ccy:s(r.CCY),date:s(r.DT).slice(0,10),na:+r.NA===1,proj:s(r.PROJ)}));tpLive=true;}
+      else tpWhy='Procurement returned no rows on your connection';
+    }catch(e){tpWhy='Procurement could not be read ('+esc((e&&e.code)||'error')+')';}
+    build(lr.map(lineRow),tp,today);D.source='live';D.at=new Date();
+    if(tpLive){D.tpDate=today;D.tpNote='';}else{D.tpNote=tpWhy+', so third-party rows are carried from '+fmtD(D.tpDate)+'.';}
+    try{localStorage.setItem('glbt-live','1')}catch(e){}
+    if(!D.QUARTERS.includes(S.q))S.q=D.CURQ;
+    renderAll();setFresh('live');
+  }catch(e){setFresh('err',e);}
+  finally{btn.disabled=false;}
+}
+function snapAge(){return daysBetween(SNAP_DATE,localToday());}
+function setFresh(state,err){
+  const el=$('#fresh'),t=$('#fresh-t'),b=$('#fresh-b');
+  const age=snapAge(),old=age>STALE_DAYS;
+  el.className='fresh'+(state==='live'?' live':(state==='err'||(state==='snap'&&old))?' err':state==='load'?' load':'');
+  if(state==='load'){t.innerHTML='Pulling from Snowflake…';return;}
+  if(state==='live'){t.innerHTML=`<b>Live</b> · pulled ${D.at.toLocaleString('en-US',{day:'numeric',month:'short',hour:'numeric',minute:'2-digit'})} · ${D.orders.length} orders`+(D.tpNote?' · <span class="age">3P data carried from '+fmtD(D.tpDate)+'</span>':'');b.textContent='Refresh';return;}
+  const snap=`<b>Data as of ${fmtD(SNAP_DATE)}</b> · rebuilt from Snowflake each Wednesday`+(old?` · <span class="age">${age} days old</span>`:'');
+  if(state==='err'){
+    const c=err&&err.code;
+    if(c==='blocked_by_policy'){t.innerHTML=snap+' · your organization\'s settings don\'t let pages use connectors yet, so this updates when the page is republished';b.hidden=true;return;}
+    t.innerHTML=snap+' · '+(c==='unavailable'?'live refresh isn\'t available in this view':c==='empty'?'Snowflake returned no order rows, kept the last data':c==='unreadable'?'Snowflake answered in a form the page could not read: '+esc(err.excerpt||''):'couldn\'t reach Snowflake'+(c?' ('+esc(c)+')':''));
+    b.textContent='Try again';return;
+  }
+  t.innerHTML=snap;b.textContent='Refresh from Snowflake';
+}
+$('#fresh-b').onclick=refresh;
+
+/* ---------- live lookup: orders that are not loaded on the page, pulled from Snowflake on request ---------- */
+const LK_MAX=25, LK_OK=/^[A-Z0-9][A-Z0-9.\-]{2,39}$/;
+// Same columns, scope and filters as ORDER_SQL, narrowed to one SO or part number. The term is validated against LK_OK
+// (letters, digits, dot, dash) before it reaches this string, so nothing else can be injected.
+const LOOKUP_SQL=t=>`WITH l AS (SELECT ${LINE_COLS} FROM EDNA.CONS_INSIGHTS_MART.EDNA_ORDER_MANAGEMENT_REPORT WHERE ${LINE_WHERE}), m AS (SELECT SO FROM l GROUP BY SO HAVING MAX(IFF(SO='${t}',1,0))=1 OR MAX(IFF(UPPER(PN) LIKE '%${t}%',1,0))=1 ORDER BY MAX(IFF(SO='${t}',1,0)) DESC, MAX(OD) DESC LIMIT ${LK_MAX}) SELECT * FROM l WHERE SO IN (SELECT SO FROM m) ORDER BY SO, PN`;
+async function lookup(){
+  const t=S.text.trim().toUpperCase();
+  if(!t||(S.lk.key===t&&S.lk.status==='loading'))return;
+  if(!LK_OK.test(t)){S.lk={key:t,status:'bad'};renderOrders();return;}
+  S.lk={key:t,status:'loading'};renderOrders();
+  let res;
+  try{
+    const rows=(await runSql(LOOKUP_SQL(t))).map(lineRow);
+    const by=new Map();rows.forEach(r=>{if(!by.has(r.so))by.set(r.so,[]);by.get(r.so).push(r);});
+    const orders=[...by.values()].map(g=>makeOrder(g,D.today));
+    // looked-up orders live in S.found only: they show in search results and never enter D.orders, so no total can move
+    orders.forEach(o=>{if(!D.orders.some(x=>x.so===o.so))S.found.set(o.so,{...o,ext:true});});
+    res={key:t,status:'done',n:orders.length,capped:orders.length>=LK_MAX};
+  }catch(e){res={key:t,status:'err',code:e&&e.code};}
+  if(S.lk.key===t&&S.lk.status==='loading')S.lk=res;
+  renderOrders();
+}
+function lkNote(t,nExt){
+  const k=S.lk;
+  if(k.key!==t)return 'Not on this page? Press Enter or use the button to search Snowflake.';
+  if(k.status==='loading')return 'Searching Snowflake…';
+  if(k.status==='bad')return 'Enter at least 3 letters or digits (letters, digits, dot and dash only) to search Snowflake.';
+  if(k.status==='done')return k.n?'Snowflake returned '+k.n+' matching order'+(k.n===1?'':'s')+(nExt?', '+nExt+' not already on this page (tagged Snowflake)':', all already on this page')+(k.capped?'. Showing the '+LK_MAX+' most recent, so narrow the search to see others':'')+'.':'Snowflake found nothing for this search.';
+  const c=k.code;
+  return c==='unavailable'?'Live lookup is not available in this view. Open the page in your Claude app to use it.':c==='blocked_by_policy'?'Your organization\'s settings don\'t let pages use connectors yet.':'Could not reach Snowflake'+(c?' ('+esc(c)+')':'')+'. Try again.';
+}
+function emptySearchMsg(q0,t){
+  const k=S.lk, st=k.key===t?k.status:'idle';
+  if(st==='loading')return 'Searching Snowflake for "'+esc(q0)+'"…';
+  if(st==='done')return 'No order or part number matches "'+esc(q0)+'" in Snowflake either. The lookup covers lab departments 7030, 7110, 7120, 7130 and 7140 on 5-digit expense accounts, so an SO outside those will not appear.';
+  return 'No order or part number matches "'+esc(q0)+'" in the data loaded on this page.<br><button class="lk-go">Look up in Snowflake</button>'+(st==='idle'?'':'<div class="sub-muted" style="margin-top:8px">'+lkNote(t,0)+'</div>');
+}
+
+/* ---------- state ---------- */
+const S={q:'',mode:'budget',tpMode:'capex',status:'all',cat:'',dept:'',text:'',sort:'status',dir:1,openRows:new Set(),openPrj:new Set(),pAll:false,pLate:false,sStatus:'all',picked:false,found:new Map(),lk:{key:'',status:'idle'}};
+const save=()=>{try{localStorage.setItem('glbt',JSON.stringify({q:S.q,mode:S.mode,tpMode:S.tpMode}))}catch(e){}};
+function resetSearch(){S.text='';S.sStatus='all';S.picked=false;S.lk={key:'',status:'idle'};$('#f-q').value='';}
+
+function drill(q,cat,st){
+  S.q=q;if(S.mode==='placed')S.mode='budget';S.cat=cat;S.status=st;S.dept='';S.text='';S.openRows.clear();S.pAll=false;
+  $('#f-cat').value=cat;$('#f-dept').value='';$('#f-q').value='';
+  save();renderAll();
+  $('#orders-sec').scrollIntoView({behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'start'});
+}
+
+/* ---------- rail + grid ---------- */
+function fys(qs){return [...new Set(qs.map(q=>q.slice(0,4)))];}
+function renderRail(){
+  const g=$('#qgroup');g.innerHTML='';
+  fys(D.QUARTERS).forEach(fy=>{
+    const box=document.createElement('div');box.className='fy';box.innerHTML='<span class="lbl">'+fy+'</span>';
+    D.QUARTERS.filter(q=>q.startsWith(fy)).forEach(q=>{
+      const b=document.createElement('button');b.className='qbtn';b.textContent=q.slice(4);
+      b.setAttribute('aria-pressed',q===S.q);b.setAttribute('aria-label',qLabel(q)+(q===D.CURQ?' (current quarter)':''));
+      if(q===D.CURQ)b.insertAdjacentHTML('beforeend','<span class="now">NOW</span>');
+      b.onclick=()=>{resetSearch();S.q=q;S.openRows.clear();save();renderAll();};
+      box.appendChild(b);
+    });
+    g.appendChild(box);
+  });
+  ['budget','gl','placed'].forEach(m=>$('#m-'+m).setAttribute('aria-pressed',S.mode===m));
+  [['none','none'],['capex','capex'],['all','all']].forEach(([id,v])=>$('#c-'+id).setAttribute('aria-pressed',S.tpMode===v));
+}
+['budget','gl','placed'].forEach(m=>$('#m-'+m).onclick=()=>{resetSearch();S.mode=m;S.openRows.clear();save();renderAll();});
+['none','capex','all'].forEach(v=>$('#c-'+v).onclick=()=>{S.tpMode=v;save();renderAll();});
+
+function countTxt(){return S.tpMode==='none'?'internal orders only':S.tpMode==='capex'?'orders plus third-party CapEx':'orders plus all third-party spend';}
+function renderQTable(){
+  const Q=D.QUARTERS;
+  $('#fq-hint').textContent='Counting '+countTxt()+(gl()?', GL timing':'')+'. Click any number to list every order behind it.';
+  let h='<thead><tr><th></th>'+fys(Q).map(fy=>`<th colspan="${Q.filter(q=>q.startsWith(fy)).length}" class="fyh">${fy}</th>`).join('')+'</tr><tr><th></th>'+Q.map(q=>`<th class="${q===D.CURQ?'cur':''}">${q.slice(4)}${q===D.CURQ?' · now':''}</th>`).join('')+'</tr></thead><tbody>';
+  const mapc={'s-green':'g','s-yellow':'y','s-red':'r','s-over':'r','s-none':'n'};
+  [['CapEx','of '+kfmt(allowFor(D.CURQ,'CapEx'))+' a quarter'],['OpEx','of '+kfmt(allowFor(D.CURQ,'OpEx'))+' a quarter'],['Total','both envelopes']].forEach(([cat,sub])=>{
+    h+=`<tr><td class="rl">${cat}<span>${sub}</span></td>`;
+    Q.forEach(q=>{
+      let tot,n,cls,pt;
+      if(cat==='Total'){const a=envelope(q,'CapEx'),b=envelope(q,'OpEx');tot=a.tot+b.tot;n=a.n+b.n+a.nT+b.nT;cls='tot';pt='';}
+      else{const e=envelope(q,cat),A=allowFor(q,cat);tot=e.tot;n=e.n+e.nT;cls=mapc[statusOf(tot,A)[1]];pt=' · '+(tot/A*100).toFixed(0)+'%';}
+      const sel=q===S.q&&S.mode!=='placed'&&(cat==='Total'?!S.cat:S.cat===cat);
+      h+=`<td><button class="qc ${cls}${sel?' sel':''}" data-q="${q}" data-cat="${cat==='Total'?'':cat}" aria-label="${qLabel(q)} ${cat}: ${money(tot)} across ${n} items. Show the orders."><span class="tv">${money(tot)}</span><span class="sv">${n} item${n===1?'':'s'}${pt}</span></button></td>`;
+    });
+    h+='</tr>';
+  });
+  $('#qtable').innerHTML=h+'</tbody>';
+  document.querySelectorAll('#qtable .qc').forEach(b=>b.onclick=()=>drill(b.dataset.q,b.dataset.cat,'all'));
+}
+
+/* ---------- envelopes ---------- */
+function renderEnvelopes(){
+  const el=$('#envelopes');el.innerHTML='';
+  const past=qKey(S.q)<qKey(D.CURQ), cur=S.q===D.CURQ, nq=nextQ(S.q), ar=allowRec(S.q);
+  ['CapEx','OpEx'].forEach(cat=>{
+    const A=allowFor(S.q,cat), e=envelope(S.q,cat), rem=A-e.tot, pct=e.tot/A*100;
+    const [st,cls]=statusOf(e.tot,A);
+    const scale=Math.max(A,e.tot);
+    const wA=Math.max(0,e.act)/scale*100, wF=Math.max(0,e.fc)/scale*100, wT=Math.max(0,e.tp)/scale*100;
+    const qTag=past?'Closed quarter':cur?'Current quarter · closes '+fmtD(qEnd(S.q)):'Future quarter';
+    const stale=D.orders.filter(o=>o.cat===cat&&o.status==='stale'&&touches(o,S.q));
+    const notes=[];
+    if(cur&&stale.length&&!gl()){
+      const sv=sum(stale,o=>o.hit),pl=stale.length>1;
+      const n=envelope(nq,cat),moved=n.tot+sv,An=allowFor(nq,cat);
+      notes.push(`<b>${money(sv)}</b> of this is ${stale.length} order${pl?'s':''} with parts past ${pl?'their':'the'} scheduled date. ${pl?'They sit':'It sits'} here because ${pl?'they':'it'} could ship any day. If ${pl?'they haven\'t':'it hasn\'t'} shipped by ${fmtD(qEnd(S.q))}, ${pl?'they roll':'it rolls'} into ${qLabel(nq)}, taking it from ${money(n.tot)} to <b>${money(moved)}</b> (${(moved/An*100).toFixed(0)}%, ${statusOf(moved,An)[0]}).`);
+    } else if(!past&&e.ord>0&&e.act===0){notes.push('Nothing has closed yet. Every order dollar here is open and moves if its schedule slips.');}
+    else if(past&&!HIST[S.q]){notes.push(`Final for orders. ${e.nA} order${e.nA===1?'':'s'} closed in the quarter.`);}
+    if(e.tp)notes.push(`<b>${money(e.tp)}</b> is third-party spend (${e.nT} requisition line${e.nT===1?'':'s'}), converted to USD at ${CFG.fx&&CFG.fx.status==='provisional'?'provisional':'set'} rates.`);
+    else if(S.tpMode==='none'&&sum(D.tp.filter(t=>t.cat===cat&&t.kind!=='hold'),t=>sum(t.slices.filter(s=>s.q===S.q),s=>s.usd||0))>0)notes.push('Third-party spend is not counted in this view. Switch Count to include it.');
+    if(ar.status!=='confirmed')notes.push(`${qLabel(S.q).slice(0,4)} allowance is ${ar.status==='pending'?'pending Finance confirmation':ar.status}.`);
+    el.insertAdjacentHTML('beforeend',`
+      <article class="panel">
+        <div class="env-h"><h2>${cat} · ${qLabel(S.q)}</h2><span class="pill ${cls}">${st} · ${pct.toFixed(1)}%</span></div>
+        <div class="allow">${qTag} · allowance ${money(A)}${gl()?' · GL timing':''}</div>
+        <div class="big"><button class="click" data-cat="${cat}" data-st="all" title="List every order behind this number" style="all:unset;cursor:pointer"><span class="v num" style="text-decoration:underline dotted var(--faint);text-underline-offset:5px">${money(e.tot)}</span></button><span class="of">committed</span></div>
+        <div class="bar" role="img" aria-label="${cat}: ${pct.toFixed(1)} percent of allowance committed"><span class="a" style="width:${wA}%"></span><span class="f" style="width:${wF}%"></span><span class="t" style="width:${wT}%"></span></div>
+        <div class="ticks"><i style="left:${70*A/scale}%">70%</i><i style="left:${90*A/scale}%">90%</i>${e.tot>A?`<i style="left:${100*A/scale}%">100%</i>`:''}</div>
+        <div class="kv">
+          <button class="click" data-cat="${cat}" data-st="closed" title="List the closed orders behind this number"><div class="k"><span class="sw" style="background:var(--actual)"></span>Actual</div><div class="v">${money(e.act)}</div><div class="n">${e.nA} closed</div></button>
+          <button class="click" data-cat="${cat}" data-st="forecast" title="List the open orders behind this number"><div class="k"><span class="sw" style="background:var(--forecast)"></span>Forecast</div><div class="v">${money(e.fc)}</div><div class="n">${e.nF} open</div></button>
+          <button class="click tpj" title="Show the third-party lines behind this number"><div class="k"><span class="sw" style="background:var(--info)"></span>Third-party</div><div class="v">${money(e.tp)}</div><div class="n">${S.tpMode==='none'?'not counted':e.nT+' lines'}</div></button>
+          <div><div class="k"><span class="sw" style="background:var(--remain);outline:1px solid var(--line)"></span>Remaining</div><div class="v" style="color:${rem<0?'var(--bad)':'inherit'}">${money(rem)}</div><div class="n">${(100-pct).toFixed(1)}% left</div></div>
+        </div>${notes.length?'<div class="note">'+notes.join(' ')+'</div>':''}
+      </article>`);
+  });
+  el.querySelectorAll('.click[data-cat]').forEach(b=>b.onclick=()=>drill(S.q,b.dataset.cat,b.dataset.st));
+  el.querySelectorAll('.tpj').forEach(b=>b.onclick=()=>$('#tp-sec').scrollIntoView({behavior:'smooth',block:'start'}));
+}
+
+/* ---------- orders ---------- */
+const STATUS={closed:['Closed','st-closed','Fully shipped. Cost is actual.'],open:['Open','st-open','Still owed, on schedule.'],stale:['Open · past due','st-stale','A part is past its scheduled date. Counted as shipping today, so it rolls forward until it ships.'],credit:['Credit','st-credit','Return. Lands in the quarter received, or posted until then.']};
+const SORDER={stale:0,open:1,credit:2,closed:3};
+function scope(){return D.orders.filter(o=>S.mode==='placed'?o.pq===S.q:touches(o,S.q));}
+function lateTxt(o){return o.status!=='stale'?'':(o.daysLate!==null?` <span class="late">· ${o.daysLate}d late</span>`:' <span class="late">· no date</span>');}
+function projCell(o){const p=projOf(o);if(!p)return '<span class="sub-muted">none</span>';return `<span class="mono">${esc(p)}</span>`+(projSrc(o)==='assigned'?' <span class="sub-muted">assigned</span>':'');}
+function renderOrders(){
+  const q0=S.text.trim(), t=q0.toUpperCase(), searching=!!t;
+  // the order's dollars that count in the selected quarter (in GL timing, only the shipped or open part when that tile is picked)
+  const qv=o=>(searching||S.mode==='placed')?o.hit:gl()&&S.status==='closed'?splitIn(o,S.q)[0]:gl()&&S.status==='forecast'?splitIn(o,S.q)[1]:amtIn(o,S.q);
+  const hit0=o=>o.so.includes(t)||o.lines.some(l=>l.pn.toUpperCase().includes(t));
+  const loc=searching?D.orders.filter(hit0):[];
+  const ext=searching?[...S.found.values()].filter(o=>hit0(o)&&!D.orders.some(x=>x.so===o.so)):[];
+  const base=searching?loc.concat(ext):scope();
+  const stSel=searching?S.sStatus:S.status;
+  $('#f-cat').disabled=searching;$('#f-dept').disabled=searching;
+  $('#th-hit').firstChild.textContent=(!searching&&gl())?'In this quarter':'Order total';
+  $('#orders-title').textContent=searching?'Search results · all quarters':(S.mode==='placed'?'Orders placed in ':gl()?'Order lines shipping in ':'Orders hitting ')+qLabel(S.q);
+  $('#orders-sub').textContent=searching
+    ?'Every order on this page whose SO or part number matches "'+q0+'", from any quarter, open or closed. The quarter, envelope and department filters are paused while you search. Clear the search to go back to '+qLabel(S.q)+'.'
+    :S.mode==='budget'?'Every order whose cost lands in this quarter\'s allowance, closed and open. Click a tile to filter, or a row to see its lines.'
+    :gl()?'GL timing: every order with at least one line landing in this quarter. The amount shown is only the lines that land here, which is what the GL books.'
+    :'Every order raised this quarter, wherever its cost lands (see Budget qtr). Click a tile to filter, or a row to see its lines.';
+  const groups=[['all','All orders','t-all',base],['closed','Closed · Actual','t-closed',base.filter(o=>o.status==='closed')],['open','Open · on schedule','t-open',base.filter(o=>o.status==='open')],['stale','Open · past due','t-stale',base.filter(o=>o.status==='stale')],['credit','Credits','t-credit',base.filter(o=>o.status==='credit')]];
+  $('#tiles').innerHTML=groups.map(([k,tl,c,arr])=>{
+    const v=sum(arr,qv),cx=sum(arr.filter(o=>o.cat==='CapEx'),qv);
+    return `<button class="tile ${c}" data-s="${k}" aria-pressed="${stSel===k}"><span class="t">${tl}</span><span class="c">${arr.length} · ${kfmt(v)}</span><span class="d">CapEx ${kfmt(cx)} · OpEx ${kfmt(v-cx)}</span></button>`;
+  }).join('');
+  document.querySelectorAll('#tiles .tile').forEach(b=>b.onclick=()=>{if(S.text.trim())S.sStatus=b.dataset.s;else S.status=b.dataset.s;renderOrders();});
+  let rows=searching
+    ?base.filter(o=>stSel==='all'||o.status===stSel)
+    :base.filter(o=>(stSel==='all'||(stSel==='forecast'?(gl()?splitIn(o,S.q)[1]!==0:o.spend==='F'):stSel==='closed'&&gl()?splitIn(o,S.q)[0]!==0:o.status===stSel))&&(!S.cat||o.cat===S.cat)&&(!S.dept||o.dept===S.dept));
+  const val={so:o=>+o.so||0,status:o=>SORDER[o.status]*1e7-qv(o),dept:o=>+o.dept,cat:o=>o.cat,proj:o=>projOf(o)||'~',prog:o=>o.nShip/o.nLines,shipped:o=>o.shipped,out:o=>o.out,hit:qv,od:o=>o.od,ss:o=>o.ss||'9999',key:o=>o.key,rq:o=>qKey(o.rq)};
+  const byQ=searching&&!S.picked, sk=byQ?'rq':S.sort, sd=byQ?-1:S.dir;
+  const f=val[sk]||val.status;
+  rows.sort((a,b)=>{const x=f(a),y=f(b);return (x<y?-1:x>y?1:0)*sd||(byQ?(SORDER[a.status]-SORDER[b.status]||b.hit-a.hit):0);});
+  $('#f-count').textContent=searching?rows.length+' of '+base.length+' matches · all quarters':rows.length+' of '+base.length+' orders';
+  // reconciliation against the order part of the envelope (third-party spend is reconciled in its own section)
+  const rsum=sum(rows,qv);
+  const env=(S.cat?[S.cat]:['CapEx','OpEx']).map(c=>envelope(S.q,c));
+  const tgt={all:['committed (orders)',sum(env,e=>e.ord)],closed:['actual',sum(env,e=>e.act)],forecast:['forecast',sum(env,e=>e.fc)]}[S.status];
+  const catTxt=S.cat||'CapEx + OpEx';
+  const showAll=`<button id="recon-all">Show every order behind ${qLabel(S.q)}</button>`;
+  const tpv=sum(env,e=>e.tp);
+  let rc;
+  if(searching){const nq=new Set(rows.map(o=>o.rq)).size;rc=`Searching <b>all quarters</b> for <b>"${esc(q0)}"</b>: <b>${rows.length} order${rows.length===1?'':'s'}</b> across ${nq} quarter${nq===1?'':'s'}, <b>${money(rsum)}</b> combined. This isn't tied to an envelope. ${lkNote(t,ext.length)}<button class="lk-go"${S.lk.key===t&&S.lk.status==='loading'?' disabled':''}>Search Snowflake</button><button id="recon-clear">Back to ${qLabel(S.q)}</button>`;}
+  else if(S.mode==='placed') rc=`These are orders <b>raised</b> in ${qLabel(S.q)}. Each one's cost lands in its Budget qtr, so this list won't equal an envelope. Switch to Budget quarter to see what makes up the forecast.`;
+  else if(tgt&&!S.dept){const ok=Math.abs(rsum-tgt[1])<0.01;rc=`<span class="${ok?'ok':''}">${ok?'✓':'!'}</span> These <b>${rows.length} orders</b> add up to <b>${money(rsum)}</b>, the ${qLabel(S.q)} ${catTxt} <b>${tgt[0]}</b> figure.`+(S.status==='all'&&tpv?` Third-party adds <b>${money(tpv)}</b> on top, listed under Third-party requisitions.`:'')+(S.status!=='all'||S.cat?showAll:'');}
+  else rc=`Filtered view: <b>${rows.length} orders</b>, <b>${money(rsum)}</b>. The full ${qLabel(S.q)} ${catTxt} order figure is ${money(sum(env,e=>e.ord))}.`+showAll;
+  $('#recon').innerHTML=rc;
+  $('#recon-all')?.addEventListener('click',()=>drill(S.q,'','all'));
+  $('#recon-clear')?.addEventListener('click',()=>{resetSearch();renderOrders();});
+  document.querySelectorAll('#recon .lk-go').forEach(b=>b.onclick=lookup);
+  document.querySelectorAll('#otable thead th').forEach(th=>{th.querySelector('.ar')?.remove();if(th.dataset.k===sk)th.insertAdjacentHTML('beforeend','<span class="ar">'+(sd>0?'▲':'▼')+'</span>');});
+  const tb=$('#otable tbody');
+  if(!rows.length){tb.innerHTML='<tr><td colspan="13" class="empty">'+(searching?(base.length?'No match in that status. Pick All orders above to see the other '+base.length+'.':emptySearchMsg(q0,t)):base.length?'No orders match these filters. Clear one to see the other '+base.length+'.':'Nothing '+(S.mode==='placed'?'was placed in':'lands in')+' this quarter yet.')+'</td></tr>';$('#otable tfoot').innerHTML='';tb.querySelectorAll('.lk-go').forEach(b=>b.onclick=lookup);return;}
+  tb.innerHTML=rows.map(o=>{
+    const [sl,sc,stip]=STATUS[o.status];
+    const isOpen=S.openRows.has(o.so);
+    const v=qv(o);
+    const ac=o.acctStatus==='confirmed'?'':o.acctStatus==='flag'?' '+tag('bad','check',acctInfo(o.acct).note):o.acctStatus==='unmapped'?' '+tag('warn','unmapped','Not on the approved account list'):'';
+    let h=`<tr class="o${isOpen?' open-row':''}" data-so="${o.so}" tabindex="0" aria-expanded="${isOpen}">
+      <td><span class="caret">▸</span> ${o.so}${o.ext?' <span class="ext" title="Pulled live from Snowflake. Shown for lookup only, it does not change any total on this page.">Snowflake</span>':''}</td>
+      <td class="mono">${qLabel(o.rq)}</td>
+      <td><span class="st ${sc}" title="${stip}">${sl}</span></td>
+      <td>${o.dept} <span class="sub-muted">${esc(DEPTS[o.dept]||'')}</span></td>
+      <td><span class="cat">${o.cat}</span> <span class="sub-muted mono">${o.acct}</span>${ac}</td>
+      <td>${projCell(o)}</td>
+      <td><span class="prog"><i style="width:${o.nShip/o.nLines*100}%"></i></span><span class="mono">${o.nShip}/${o.nLines}</span></td>
+      <td class="r num">${money(o.shipped)}</td>
+      <td class="r num">${Math.abs(o.out)>0.005?money(o.out):'-'}</td>
+      <td class="r num"><b>${money(v)}</b>${Math.abs(v-o.hit)>0.005?` <span class="sub-muted">of ${money(o.hit)}</span>`:''}</td>
+      <td class="mono">${fmtD(o.od)}</td>
+      <td class="mono"${o.os?'':' style="color:var(--faint)" title="All lines shipped, so actual ship dates apply. This was the last scheduled date."'}>${o.ss?fmtD(o.ss):'-'}</td>
+      <td class="mono">${fmtD(o.rd)}${lateTxt(o)}</td></tr>`;
+    if(isOpen){
+      const pj=projOf(o);
+      h+=`<tr class="detail"><td colspan="13"><div class="lines">
+        <div class="meta"><span>Ship to <b>${esc(o.shipto)}</b></span><span>Region <b>${esc(o.geo)}</b></span><span>Account <b>${o.acct}</b> ${esc(acctInfo(o.acct).desc)}</span><span>Project <b>${pj?esc(pj+' · '+prjName(pj)):'none'}</b></span><span>Placed <b>${fmtD(o.od)}</b> (${qLabel(o.pq)})</span><span>Lands on <b>${fmtD(o.rd)}</b> · ${qLabel(o.rq)}</span>${o.ext?'<span><b>Live lookup</b> · shown for reference, not part of any total on this page</span>':''}</div>
+        <table><thead><tr><th>Part</th><th>Line status</th><th class="r">Qty</th><th class="r">Shipped</th><th class="r">Line cost</th><th>Scheduled</th><th>Shipped / received</th><th>Counts on</th><th>GL qtr</th></tr></thead><tbody>
+        ${o.lines.map(l=>`<tr><td class="mono">${esc(l.pn)}</td><td class="${l.ret?'ls-ret':l.shipped?'ls-ok':l.past?'ls-late':'ls-open'}">${lsLabel(l)}</td><td class="r num">${l.q}</td><td class="r num">${l.sq}</td><td class="r num">${money(l.c,true)}</td><td class="mono">${fmtD(l.ssd)}${l.past?(l.late!==null?` <span class="late">${l.late}d late</span>`:' <span class="late">no date</span>'):''}</td><td class="mono">${fmtD(l.asd||l.rcd)}</td><td class="mono">${fmtD(l.eff)}${l.past?' <span class="sub-muted">today</span>':l.ret&&!l.shipped?' <span class="sub-muted">posted</span>':''}</td><td class="mono">${qLabel(l.lq)}</td></tr>`).join('')}
+        </tbody></table></div></td></tr>`;
+    }
+    return h;
+  }).join('');
+  $('#otable tfoot').innerHTML=`<tr><td colspan="7">${rows.length} order${rows.length===1?'':'s'} shown</td><td class="r num">${money(sum(rows,o=>o.shipped))}</td><td class="r num">${money(sum(rows,o=>o.out))}</td><td class="r num">${money(rsum)}</td><td colspan="3"></td></tr>`;
+  tb.querySelectorAll('tr.o').forEach(tr=>{
+    const tog=()=>{const so=tr.dataset.so;S.openRows.has(so)?S.openRows.delete(so):S.openRows.add(so);renderOrders();};
+    tr.onclick=tog;tr.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();tog();}};
+  });
+}
+document.querySelectorAll('#otable thead th').forEach(th=>th.onclick=()=>{const k=th.dataset.k,byQ=!!S.text.trim()&&!S.picked;if(byQ&&k==='rq'){S.sort='rq';S.dir=1;}else if(!byQ&&S.sort===k)S.dir*=-1;else{S.sort=k;S.dir=['hit','shipped','out','prog'].includes(k)?-1:1;}S.picked=true;renderOrders();});
+Object.entries(DEPTS).forEach(([k,v])=>$('#f-dept').insertAdjacentHTML('beforeend',`<option value="${k}">${k} · ${v}</option>`));
+$('#f-cat').onchange=e=>{S.cat=e.target.value;renderOrders();};
+$('#f-dept').onchange=e=>{S.dept=e.target.value;renderOrders();};
+$('#f-q').oninput=e=>{const was=!!S.text.trim();S.text=e.target.value;if(!was&&S.text.trim()){S.sStatus='all';S.picked=false;}renderOrders();};
+$('#f-q').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();lookup();}};
+
+/* ---------- parts still to ship ---------- */
+function renderParts(){
+  $('#p-sel').setAttribute('aria-pressed',!S.pAll);$('#p-all').setAttribute('aria-pressed',S.pAll);$('#p-late').checked=S.pLate;
+  $('#p-sel').textContent=qLabel(S.q);
+  $('#parts-title').textContent='Parts still to ship · '+(S.pAll?'all open orders':qLabel(S.q));
+  const inSel=(o,l)=>S.pAll||(gl()?l.lq===S.q:o.rq===S.q);
+  const ords=D.orders.filter(o=>o.nOpen>0&&o.lines.some(l=>!l.shipped&&inSel(o,l))).sort((a,b)=>SORDER[a.status]-SORDER[b.status]||b.hit-a.hit);
+  const rows=[];
+  ords.forEach(o=>{const ls=o.lines.filter(l=>!l.shipped&&inSel(o,l)&&(!S.pLate||l.past));ls.forEach((l,i)=>rows.push({o,l,first:i===0}));});
+  const orderSet=[...new Set(rows.map(r=>r.o))];
+  const partSum=sum(rows,r=>r.l.c), ordSum=sum(orderSet,o=>o.hit);
+  $('#p-count').textContent=rows.length+' line'+(rows.length===1?'':'s')+' on '+orderSet.length+' order'+(orderSet.length===1?'':'s');
+  let rc;
+  if(!rows.length) rc=S.pLate?'Nothing past due here.':'Nothing left to ship in this view.';
+  else{
+    rc=`These parts cost <b>${money(partSum)}</b> on their own. Because an order lands when its last part ships, they hold <b>${money(ordSum)}</b> of order value`+(S.pAll?' across all quarters':` in ${qLabel(S.q)}`)+'.';
+    if(!S.pAll&&!S.pLate){const fc=envelope(S.q,'CapEx').fc+envelope(S.q,'OpEx').fc;const cmp=gl()?partSum:ordSum;const ok=Math.abs(fc-cmp)<0.01;rc=`<span class="${ok?'ok':''}">${ok?'✓':'!'}</span> `+rc+` ${gl()?'In GL timing the part cost is':'That\'s'} the full ${qLabel(S.q)} order forecast.`;}
+  }
+  $('#p-recon').innerHTML=rc;
+  $('#ptable tbody').innerHTML=rows.length?rows.map(({o,l,first})=>`<tr class="${first?'first':''}" data-so="${o.so}" data-q="${o.rq}" title="Open order ${o.so}">
+    <td class="mono"><b>${first?o.so:''}</b></td><td class="mono">${esc(l.pn)}</td>
+    <td class="${l.ret?'ls-ret':l.past?'ls-late':'ls-open'}">${lsLabel(l)}</td>
+    <td class="r num">${l.q-l.sq}</td><td class="r num">${money(l.c,true)}</td>
+    <td class="r num ot">${first?money(o.hit):''}</td>
+    <td class="mono">${fmtD(l.ssd)}</td>
+    <td class="mono">${l.past?(l.late!==null?`<span class="late">${l.late}</span>`:'<span class="late">no date</span>'):'-'}</td>
+    <td class="mono">${first?qLabel(o.rq):''}</td><td>${first?o.dept+' <span class="sub-muted">'+esc(DEPTS[o.dept]||'')+'</span>':''}</td></tr>`).join(''):'<tr><td colspan="10" class="empty">'+rc+'</td></tr>';
+  $('#ptable tfoot').innerHTML=rows.length?`<tr><td colspan="4">${rows.length} lines · ${orderSet.length} orders</td><td class="r num">${money(partSum)}</td><td class="r num">${money(ordSum)}</td><td colspan="4"></td></tr>`:'';
+  document.querySelectorAll('#ptable tbody tr[data-so]').forEach(tr=>tr.onclick=()=>{const q=tr.dataset.q,so=tr.dataset.so;drill(gl()?S.q:q,'','all');S.openRows.add(so);renderOrders();});
+}
+$('#p-sel').onclick=()=>{S.pAll=false;renderParts();};
+$('#p-all').onclick=()=>{S.pAll=true;renderParts();};
+$('#p-late').onchange=e=>{S.pLate=e.target.checked;renderParts();};
+
+/* ---------- charts ---------- */
+function renderChart(cat){
+  const T=D.TREND, data=T.map(q=>({q,A:allowFor(q,cat),...envelope(q,cat)}));
+  const max=Math.max(...data.map(d=>d.A*1.15),...data.map(d=>d.tot));
+  const W=620,H=230,pl=52,pr=8,pt=14,pb=34,iw=W-pl-pr,ih=H-pt-pb,bw=iw/data.length;
+  const y=v=>pt+ih-Math.max(0,v)/max*ih;
+  const step=cat==='CapEx'?(max>900000?250000:100000):(max>300000?100000:25000);
+  let g='';
+  for(let v=0;v<=max;v+=step){g+=`<line x1="${pl}" x2="${W-pr}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)" stroke-width="1"/><text x="${pl-6}" y="${y(v)+3.5}" text-anchor="end" font-size="10" fill="var(--faint)" font-family="DM Mono,monospace">${kfmt(v)}</text>`;}
+  let bars='';
+  data.forEach((d,i)=>{
+    const x=pl+i*bw+bw*.18,w=bw*.64,sel=d.q===S.q,click=D.QUARTERS.includes(d.q);
+    const hA=Math.max(0,d.act)/max*ih,hF=Math.max(0,d.fc)/max*ih,hT=Math.max(0,d.tp)/max*ih;
+    bars+=`<g class="${click?'qb':''}" data-q="${d.q}" style="cursor:${click?'pointer':'default'}">
+      <rect x="${pl+i*bw}" y="${pt}" width="${bw}" height="${ih}" fill="${sel?'var(--sunk)':'transparent'}"/>
+      <rect x="${x}" y="${pt+ih-hA}" width="${w}" height="${hA}" fill="var(--actual)"/>
+      <rect x="${x}" y="${pt+ih-hA-hF}" width="${w}" height="${hF}" fill="url(#hatch-${cat})"/>
+      <rect x="${x}" y="${pt+ih-hA-hF-hT}" width="${w}" height="${hT}" fill="url(#hatchtp-${cat})"/>
+      <text x="${x+w/2}" y="${H-pb+14}" text-anchor="middle" font-size="10" fill="${sel?'var(--ink)':'var(--muted)'}" font-weight="${sel?700:400}" font-family="DM Sans,sans-serif">${d.q.slice(4)}</text>
+      ${sel&&d.tot>0?`<text x="${x+w/2}" y="${Math.max(pt+20,y(d.tot)-5)}" text-anchor="middle" font-size="10" fill="var(--ink)" font-weight="600" font-family="DM Mono,monospace">${kfmt(d.tot)}</text>`:''}
+      <title>${qLabel(d.q)}: committed ${money(d.tot)} (actual ${money(d.act)}, forecast ${money(d.fc)}, third-party ${money(d.tp)}), ${(d.tot/d.A*100).toFixed(1)}% of ${money(d.A)}</title></g>`;
+  });
+  let fyl='',al='';fys(T).forEach((fy,k)=>{const i0=T.findIndex(q=>q.startsWith(fy)),n=T.filter(q=>q.startsWith(fy)).length,x0=pl+i0*bw,A=allowFor(T[i0],cat);
+    fyl+=`<text x="${x0+n*bw/2}" y="${H-4}" text-anchor="middle" font-size="10.5" fill="var(--faint)" font-weight="600" font-family="DM Sans,sans-serif">${fy}</text>${k?`<line x1="${x0}" x2="${x0}" y1="${pt}" y2="${H-pb+18}" stroke="var(--line)"/>`:''}`;
+    al+=`<line x1="${x0}" x2="${x0+n*bw}" y1="${y(A)}" y2="${y(A)}" stroke="var(--bad)" stroke-dasharray="5 4" stroke-width="1.4"/>`;});
+  const cq=T.indexOf(D.CURQ);
+  const now=cq>=0?`<text x="${pl+cq*bw+bw/2}" y="${pt-3}" text-anchor="middle" font-size="9" fill="var(--good)" font-weight="700" font-family="DM Sans,sans-serif">NOW</text>`:'';
+  const Ac=allowFor(D.CURQ,cat);
+  $('#ch-'+cat).innerHTML=`<div class="ttl"><h3>${cat}</h3><div class="legend"><span><i style="background:var(--actual)"></i>Actual</span><span><i style="background:var(--forecast)"></i>Forecast</span><span><i style="background:var(--info)"></i>Third-party</span></div></div>
+  <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${cat} committed spend by quarter against the allowance">
+    <defs><pattern id="hatch-${cat}" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="var(--forecast)" opacity=".5"/><rect width="3.5" height="6" fill="var(--forecast)"/></pattern>
+    <pattern id="hatchtp-${cat}" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(-45)"><rect width="6" height="6" fill="var(--info)" opacity=".45"/><rect width="3.5" height="6" fill="var(--info)"/></pattern></defs>
+    ${g}${bars}${fyl}${now}${al}
+    <text x="${pl+4}" y="${y(Ac)-5}" text-anchor="start" font-size="10" fill="var(--bad)" font-family="DM Sans,sans-serif" font-weight="600">Allowance ${kfmt(Ac)}</text>
+  </svg>`;
+  document.querySelectorAll('#ch-'+cat+' g.qb').forEach(n=>n.onclick=()=>drill(n.dataset.q,cat,'all'));
+}
+
+/* ---------- departments ---------- */
+function renderDepts(){
+  $('#dept-title').textContent='By department · '+qLabel(S.q)+(gl()?' · GL timing':'');
+  const os=D.orders.filter(o=>touches(o,S.q));
+  const showTP=S.tpMode!=='none';
+  $('#dtable thead').innerHTML='<tr><th>Department</th><th class="r">CapEx closed</th><th class="r">CapEx open</th><th class="r">OpEx closed</th><th class="r">OpEx open</th>'+(showTP?'<th class="r">Third-party</th>':'')+'<th class="r">Committed</th><th class="r">Orders</th><th>Share</th></tr>';
+  const cell=(arr,cat,i)=>sum(arr.filter(o=>o.cat===cat),o=>splitIn(o,S.q)[i]);
+  const tpd=d=>tpIn(S.q,'CapEx',d)+tpIn(S.q,'OpEx',d);
+  const rowv=(a,d)=>sum(a,o=>amtIn(o,S.q))+(showTP?tpd(d):0);
+  const tot=sum(Object.keys(DEPTS),d=>rowv(os.filter(o=>o.dept===d),d));
+  const c=(has,v)=>has?money(v):'-';
+  $('#dtable tbody').innerHTML=Object.keys(DEPTS).map(d=>{const a=os.filter(o=>o.dept===d),tv=showTP?tpd(d):0,v=rowv(a,d),has=a.length||Math.abs(tv)>0.005;
+    return `<tr><td><b>${d}</b> <span class="sub-muted">${DEPTS[d]}</span></td><td class="r num">${c(has,cell(a,'CapEx',0))}</td><td class="r num">${c(has,cell(a,'CapEx',1))}</td><td class="r num">${c(has,cell(a,'OpEx',0))}</td><td class="r num">${c(has,cell(a,'OpEx',1))}</td>${showTP?`<td class="r num">${c(has,tv)}</td>`:''}<td class="r num"><b>${c(has,v)}</b></td><td class="r num">${a.length||'-'}</td><td><span class="prog" style="width:110px"><i style="width:${tot>0?Math.max(0,v)/tot*100:0}%;background:var(--accent)"></i></span><span class="mono sub-muted">${tot>0&&has?(v/tot*100).toFixed(0)+'%':''}</span></td></tr>`;}).join('');
+  const tpt=showTP?sum(Object.keys(DEPTS),d=>tpd(d)):0;
+  $('#dtable tfoot').innerHTML=`<tr><td>Total</td><td class="r num">${money(cell(os,'CapEx',0))}</td><td class="r num">${money(cell(os,'CapEx',1))}</td><td class="r num">${money(cell(os,'OpEx',0))}</td><td class="r num">${money(cell(os,'OpEx',1))}</td>${showTP?`<td class="r num">${money(tpt)}</td>`:''}<td class="r num">${money(tot)}</td><td class="r num">${os.length}</td><td></td></tr>`;
+}
+
+/* ---------- projects and the asset test ---------- */
+function projectGroups(){
+  const G=new Map();
+  const get=(p,loc)=>{const k=p+'|'+loc;if(!G.has(k))G.set(k,{p,loc,orders:[],tp:[],maybe:[]});return G.get(k);};
+  D.orders.forEach(o=>{const p=projOf(o);if(p)get(p,o.dept).orders.push(o);});
+  D.tp.forEach(t=>{if(t.proj&&t.kind!=='hold')get(t.proj,t.d).tp.push(t);});
+  Object.entries(PRJ).forEach(([p,P])=>{if(P.loc&&P.since){const g=get(p,P.loc);g.maybe=D.orders.filter(o=>!projOf(o)&&o.dept===P.loc&&o.od>=P.since&&o.status!=='credit');}});
+  return [...G.values()].map(g=>{
+    const oc=sum(g.orders.filter(o=>o.cat==='CapEx'),o=>o.hit),oo=sum(g.orders.filter(o=>o.cat==='OpEx'),o=>o.hit);
+    const tc=sum(g.tp.filter(t=>t.cat==='CapEx'),t=>t.usd||0),to=sum(g.tp.filter(t=>t.cat==='OpEx'),t=>t.usd||0);
+    return {...g,oc,oo,tc,to,capex:oc+tc,mv:sum(g.maybe,o=>o.hit)};
+  }).filter(g=>g.orders.length||g.tp.length||g.maybe.length).sort((a,b)=>b.capex-a.capex);
+}
+function noProjectSets(){
+  const from=D.QUARTERS[0];
+  const np=D.orders.filter(o=>!projOf(o)&&o.status!=='credit'&&qKey(o.rq)>=qKey(from));
+  return {from,reclass:np.filter(o=>o.cat==='CapEx'&&o.hit>0&&o.hit<ASSET_MIN),maybeCap:np.filter(o=>o.cat==='OpEx'&&o.hit>=ASSET_MIN)};
+}
+function renderProjects(){
+  const gs=projectGroups(), npj=noProjectSets();
+  $('#prj-tiles').innerHTML=[
+    ['t-all','Projects',gs.length+'',kfmt(sum(gs,g=>g.capex))+' CapEx incl. third-party'],
+    ['t-closed','Meet the asset test',gs.filter(g=>g.capex>=ASSET_MIN).length+'','over '+kfmt(ASSET_MIN)+' per project per site'],
+    ['t-stale','CapEx under '+kfmt(ASSET_MIN)+', no project',npj.reclass.length+' · '+kfmt(sum(npj.reclass,o=>o.hit)),'reclass risk, since '+qLabel(npj.from)],
+    ['t-credit','OpEx over '+kfmt(ASSET_MIN)+', no project',npj.maybeCap.length+' · '+kfmt(sum(npj.maybeCap,o=>o.hit)),'may belong in CapEx']
+  ].map(([c,t,v,d])=>`<div class="tile ${c}" style="cursor:default"><span class="t">${t}</span><span class="c">${v}</span><span class="d">${d}</span></div>`).join('');
+  $('#prjtable thead').innerHTML='<tr><th>Project</th><th>Site</th><th class="r">Orders</th><th class="r">Order CapEx</th><th class="r">Order OpEx</th><th class="r">3P lines</th><th class="r">3P CapEx (USD)</th><th class="r">CapEx total</th><th>Asset test</th><th>Possibly in this project</th></tr>';
+  const body=[];
+  gs.forEach(g=>{
+    const k=g.p+'|'+g.loc,open=S.openPrj.has(k),P=PRJ[g.p]||{};
+    const st=g.capex>=ASSET_MIN?tag('ok','Meets '+kfmt(ASSET_MIN)):g.capex>0?tag('warn','Under '+kfmt(ASSET_MIN)):tag('muted','No CapEx');
+    body.push(`<tr class="g" data-k="${esc(k)}" tabindex="0"><td><span class="caret" style="${open?'transform:rotate(90deg)':''}">▸</span> <b class="mono">${esc(g.p)}</b> ${esc(prjName(g.p))} ${P.status&&P.status!=='confirmed'?tag('info',P.status,P.note):''}</td><td>${g.loc} <span class="sub-muted">${esc(DEPTS[g.loc]||'')}</span></td><td class="r num">${g.orders.length}</td><td class="r num">${money(g.oc)}</td><td class="r num">${money(g.oo)}</td><td class="r num">${g.tp.length}</td><td class="r num">${money(g.tc)}</td><td class="r num"><b>${money(g.capex)}</b></td><td>${st}</td><td>${g.maybe.length?g.maybe.length+' orders · '+money(g.mv)+' <span class="sub-muted">no code, same site, since '+fmtD((PRJ[g.p]||{}).since)+'</span>':'<span class="sub-muted">none</span>'}</td></tr>`);
+    if(open){
+      const items=[...g.orders.map(o=>[o.so,'Order',o.cat,o.acct,o.hit,projSrc(o)==='assigned'?'Assigned in settings':'Project code in EDNA',qLabel(o.rq)]),
+        ...g.tp.map(t=>[t.r,'3P · '+t.v,t.cat,t.a,t.usd||0,t.projSrc==='assigned'?'Assigned in settings':'Project in procurement',t.slices.map(s=>qLabel(s.q)).join(', ')]),
+        ...g.maybe.map(o=>[o.so,'Order, no project code',o.cat,o.acct,o.hit,'Possible member, assign in settings',qLabel(o.rq)])];
+      body.push(`<tr class="detail"><td colspan="10"><div class="lines"><table><thead><tr><th>Reference</th><th>Type</th><th>Envelope</th><th>Account</th><th class="r">USD</th><th>How it's linked</th><th>Lands</th></tr></thead><tbody>${items.map(i=>`<tr><td class="mono">${esc(i[0])}</td><td>${esc(i[1])}</td><td class="cat">${i[2]}</td><td class="mono">${esc(i[3])}</td><td class="r num">${money(i[4])}</td><td>${esc(i[5])}</td><td class="mono">${esc(i[6])}</td></tr>`).join('')}</tbody></table></div></td></tr>`);
+    }
+  });
+  [['np-reclass','No project · CapEx under '+kfmt(ASSET_MIN),npj.reclass,'Reclass risk: under the asset threshold with no project to roll into.'],['np-cap','No project · OpEx over '+kfmt(ASSET_MIN),npj.maybeCap,'Review: may be a new asset that belongs in CapEx.']].forEach(([k,label,arr,why])=>{
+    if(!arr.length)return;const open=S.openPrj.has(k);
+    body.push(`<tr class="g" data-k="${k}" tabindex="0"><td><span class="caret" style="${open?'transform:rotate(90deg)':''}">▸</span> <b>${label}</b></td><td><span class="sub-muted">all sites</span></td><td class="r num">${arr.length}</td><td class="r num">${money(sum(arr.filter(o=>o.cat==='CapEx'),o=>o.hit))}</td><td class="r num">${money(sum(arr.filter(o=>o.cat==='OpEx'),o=>o.hit))}</td><td class="r num">-</td><td class="r num">-</td><td class="r num">-</td><td>${tag(k==='np-reclass'?'warn':'info',k==='np-reclass'?'Reclass risk':'Review')}</td><td class="sub-muted">${why}</td></tr>`);
+    if(open)body.push(`<tr class="detail"><td colspan="10"><div class="lines"><table><thead><tr><th>SO</th><th>Dept</th><th>Account</th><th class="r">Order total</th><th>Budget qtr</th><th>Status</th></tr></thead><tbody>${arr.sort((a,b)=>b.hit-a.hit).map(o=>`<tr><td class="mono">${o.so}</td><td>${o.dept} <span class="sub-muted">${esc(DEPTS[o.dept]||'')}</span></td><td class="mono">${o.acct}</td><td class="r num">${money(o.hit)}</td><td class="mono">${qLabel(o.rq)}</td><td>${STATUS[o.status][0]}</td></tr>`).join('')}</tbody></table></div></td></tr>`);
+  });
+  $('#prjtable tbody').innerHTML=body.length?body.join(''):'<tr><td colspan="10" class="empty">No project codes in the data yet.</td></tr>';
+  document.querySelectorAll('#prjtable tr.g').forEach(tr=>{const tog=()=>{const k=tr.dataset.k;S.openPrj.has(k)?S.openPrj.delete(k):S.openPrj.add(k);renderProjects();};tr.onclick=tog;tr.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();tog();}};});
+}
+
+/* ---------- contracts and renewals ---------- */
+function contractRows(){
+  return (CFG.contracts||[]).map(c=>{
+    const usd=toUSD(c.amount,c.ccy),ann=annualUSD(c),left=c.end?daysBetween(D.today,c.end):null;
+    const treat=c.end&&left<0?'Term ended, confirm renewal':ann==null?(usd!=null&&usd>=AMORT_MIN?'Likely prepaid, term needed':'Expensed when posted'):ann>=AMORT_MIN?'Prepaid, amortized monthly':'Expensed when posted';
+    const status=!c.end?['muted','Dates missing']:left<0?['bad','Expired']:left<=RENEW_DAYS?['warn','Renew soon']:['ok','Active'];
+    return {...c,usd,ann,left,treat,status};
+  }).sort((a,b)=>(a.left==null)-(b.left==null)||(a.left??0)-(b.left??0));
+}
+function renderContracts(){
+  const rows=contractRows();
+  const soon=rows.filter(r=>r.status[1]==='Renew soon'),exp=rows.filter(r=>r.status[1]==='Expired'),miss=rows.filter(r=>r.status[1]==='Dates missing');
+  $('#ct-sub').textContent='Support, maintenance and subscription terms, so renewals are caught before support lapses. Seeded from the 3P Requisitions sheet on the Lab Operations SharePoint and kept in settings.js until term dates are on the PO. Per-year amounts use the same USD rates as above.';
+  $('#ct-tiles').innerHTML=[['t-stale','Renew within '+RENEW_DAYS+' days',soon.length],['t-credit','Expired, renewal not on file',exp.length],['t-all','Dates missing',miss.length],['t-closed','On file',rows.length]].map(([c,t,v])=>`<div class="tile ${c}" style="cursor:default"><span class="t">${t}</span><span class="c">${v}</span></div>`).join('');
+  $('#cttable tbody').innerHTML=rows.length?rows.map(r=>`<tr><td class="mono">${esc(r.ref)}</td><td>${esc(r.vendor)}</td><td class="wcell">${esc(r.what)}${r.note?'<div class="sub-muted">'+esc(r.note)+'</div>':''}</td><td class="mono">${fmtD(r.start)}</td><td class="mono">${fmtD(r.end)}</td><td class="r num">${r.left==null?'-':r.left}</td><td class="r num">${r.amount?Number(r.amount).toLocaleString('en-US')+' '+esc(r.ccy):'-'}</td><td class="r num">${r.ann!=null?money(r.ann):'-'}</td><td>${esc(r.treat)}</td><td>${tag(r.status[0],r.status[1])}</td></tr>`).join(''):'<tr><td colspan="10" class="empty">No contracts on file.</td></tr>';
+}
+
+/* ---------- watch list (computed from the data, as of today) ---------- */
+function renderWatch(){
+  const CQ=D.CURQ, NQ=nextQ(CQ), items=[];
+  $('#watch-sub').textContent='As of '+fmtD(D.today)+'. What could move the numbers, and what needs a call with Finance.';
+  const age=snapAge();
+  if(D.source!=='live'&&age>STALE_DAYS)items.push({sev:'bad',t:'This snapshot is out of date',amt:age+' days',p:`The data on this page was pulled on <b>${fmtD(SNAP_DATE)}</b>. Press Refresh from Snowflake if you have the connector, or ask Dan to republish.`});
+  if(D.tpNote)items.push({sev:'warn',t:'Third-party data is older than the order data',amt:fmtD(D.tpDate),p:esc(D.tpNote)+' Requisitions raised since then are missing until procurement can be read again.'});
+  const stale=D.orders.filter(o=>o.status==='stale');
+  ['CapEx','OpEx'].forEach(cat=>{
+    const st=stale.filter(o=>o.cat===cat);if(!st.length)return;
+    const sv=sum(st,o=>o.hit),n=envelope(NQ,cat),moved=n.tot+sv,cq=envelope(CQ,cat),An=allowFor(NQ,cat);
+    const ds=st.map(o=>o.daysLate).filter(x=>x!==null);
+    items.push({sev:'bad',t:`${cat} past-due orders could roll into ${qLabel(NQ)}`,amt:money(sv),
+      p:`${st.length} open ${cat} order${st.length>1?'s':''} (${st.map(o=>o.so).join(', ')}) ${st.length>1?'have':'has'} parts ${ds.length?Math.min(...ds)+' to '+Math.max(...ds)+' days ':''}past the scheduled date. They count in ${qLabel(CQ)} (${money(cq.tot)}, ${(cq.tot/allowFor(CQ,cat)*100).toFixed(0)}%) because they could ship any day. If they haven't shipped by ${fmtD(qEnd(CQ))}, ${qLabel(NQ)} ${cat} goes from ${money(n.tot)} to <b>${money(moved)}</b>, which is ${(moved/An*100).toFixed(1)}% of the allowance (${statusOf(moved,An)[0]}).`});
+  });
+  // the part holding the most order value open
+  const byPart={};D.orders.filter(o=>o.nOpen>0&&o.status!=='credit').forEach(o=>{new Set(o.lines.filter(l=>!l.shipped&&l.c>1000).map(l=>l.pn)).forEach(pn=>{(byPart[pn]=byPart[pn]||{orders:[],val:0}).orders.push(o);byPart[pn].val+=sum(o.lines.filter(l=>!l.shipped&&l.pn===pn),l=>l.c);});});
+  const top=Object.entries(byPart).filter(([,v])=>v.orders.length>=2).sort((a,b)=>sum(b[1].orders,o=>o.hit)-sum(a[1].orders,o=>o.hit))[0];
+  if(top){const [pn,v]=top,hold=sum(v.orders,o=>o.hit),lateN=v.orders.filter(o=>o.status==='stale').length;
+    items.push({sev:'bad',t:`One part is holding ${v.orders.length} orders open: ${pn}`,amt:money(hold),
+      p:`The unshipped ${pn} lines are worth <b>${money(v.val)}</b>, but because cost lands on the last part, they hold <b>${money(hold)}</b> of order value (${v.orders.map(o=>o.so).join(', ')}).${lateN?' '+lateN+' of these are already past due.':''} Worth getting a firm ship date from supply chain, or splitting the part onto its own order so the rest can close.`});}
+  // third-party CapEx this quarter
+  const tpc=D.tp.filter(t=>t.cat==='CapEx'&&t.kind!=='hold'&&t.slices.some(s=>s.q===CQ));
+  if(tpc.length){const v=sum(tpc,t=>sum(t.slices.filter(s=>s.q===CQ),s=>s.usd));
+    items.push({sev:'warn',t:`Third-party CapEx in ${qLabel(CQ)}`,amt:money(v),p:`${tpc.length} requisition line${tpc.length>1?'s':''} (${[...new Set(tpc.map(t=>t.r))].join(', ')}) ${S.tpMode==='none'?'are <b>not counted</b> in this view; switch Count to include them':'are counted in the CapEx envelope'}. ${tpc.some(t=>t.kind==='open')?'Some are still open and roll with the current quarter until received. ':''}USD uses ${CFG.fx&&CFG.fx.status==='provisional'?'provisional':'set'} rates until Finance confirms the rate source.`});}
+  // holds
+  const holds=D.tp.filter(t=>t.kind==='hold');
+  if(holds.length)items.push({sev:'warn',t:'Requisitions on hold',amt:money(sum(holds,t=>t.usd||0)),p:holds.map(t=>`<b>${esc(t.r)}</b> (${esc(t.v)}, ${t.amt.toLocaleString('en-US')} ${esc(t.ccy2)}): ${esc(t.note||'excluded from totals')}`).join(' ')+' Held lines are left out of every total.'});
+  // accounts
+  const inWin=o=>qKey(o.rq)>=qKey(D.QUARTERS[0]);
+  const flagged=D.orders.filter(o=>inWin(o)&&o.acctStatus==='flag');
+  if(flagged.length)items.push({sev:'warn',t:'Account code to correct',amt:money(sum(flagged,o=>o.hit)),p:flagged.map(o=>`SO ${o.so} (${o.dept}, ${qLabel(o.rq)}) is coded to <b>${o.acct}</b>. ${esc(acctInfo(o.acct).note||'')}`).join(' ')});
+  const unm=[...new Set([...D.orders.filter(o=>inWin(o)&&o.acctStatus==='unmapped').map(o=>o.acct),...D.tp.filter(t=>t.acctStatus==='unmapped').map(t=>t.a)])];
+  if(unm.length)items.push({sev:'warn',t:'Accounts not on the approved list',amt:unm.length+'',p:`${unm.map(a=>'<b>'+esc(a)+'</b>').join(', ')} ${unm.length>1?'are':'is'} in use but not on the account list, so the prefix rule places ${unm.length>1?'them':'it'} for now. Add ${unm.length>1?'them':'it'} to settings.js once Finance confirms the envelope.`});
+  const pend=[...new Set([...D.orders.filter(o=>inWin(o)&&o.acctStatus==='pending').map(o=>o.acct),...D.tp.filter(t=>t.acctStatus==='pending').map(t=>t.a)])].sort();
+  if(pend.length)items.push({sev:'info',t:'Account envelopes waiting on Finance',amt:pend.length+'',p:`${pend.map(a=>'<b>'+esc(a)+'</b> '+esc(acctInfo(a).desc)).join(', ')}. These are placed as shown on the account list but not yet confirmed by Finance.`});
+  // asset test
+  const npj=noProjectSets();
+  if(npj.reclass.length)items.push({sev:'warn',t:`CapEx orders under ${kfmt(ASSET_MIN)} with no project`,amt:money(sum(npj.reclass,o=>o.hit)),p:`${npj.reclass.length} CapEx order${npj.reclass.length>1?'s':''} since ${qLabel(npj.from)} are under the asset threshold and not on a project, so Finance may reclass them to expense. Put them on a project code, or plan for them in OpEx. See Projects and the asset test.`});
+  if(npj.maybeCap.length)items.push({sev:'info',t:`OpEx orders over ${kfmt(ASSET_MIN)} with no project`,amt:money(sum(npj.maybeCap,o=>o.hit)),p:`${npj.maybeCap.map(o=>o.so).join(', ')}. If any of these is a new asset, it belongs in CapEx.`});
+  // possible project members
+  projectGroups().filter(g=>g.maybe.length).forEach(g=>items.push({sev:'info',t:`${g.maybe.length} ${DEPTS[g.loc]?DEPTS[g.loc].split(' · ').pop():g.loc} orders may belong to ${prjName(g.p)}`,amt:money(g.mv),p:`${g.maybe.map(o=>o.so).join(', ')} ship to the same site with no project code, placed since ${fmtD((PRJ[g.p]||{}).since)}. If they are part of ${esc(g.p)}, add them to the assign list in settings.js so they count as one asset.`}));
+  // currency
+  const inf=D.tp.filter(t=>t.inferred),noc=D.tp.filter(t=>t.kind==='noccy');
+  if(noc.length)items.push({sev:'warn',t:'Third-party lines with no USD rate',amt:noc.length+'',p:noc.map(t=>esc(t.r)+' ('+esc(t.ccy)+')').join(', ')+'. Left out of totals until a rate or currency is set.'});
+  if(inf.length)items.push({sev:'info',t:'Currency inferred from the requisition number',amt:inf.length+' lines',p:`These lines carry currency code 0. The page reads the currency from the requisition number format (PRUS and 10xxxxxx as USD, 600xxx as GBP, 5100xxxxxxx as JPY, 40xxxx as INR). Worth Finance confirming.`});
+  // renewals
+  const cr=contractRows(),soon=cr.filter(r=>r.status[1]==='Renew soon'),miss=cr.filter(r=>r.status[1]==='Dates missing'),exp=cr.filter(r=>r.status[1]==='Expired');
+  if(soon.length)items.push({sev:'warn',t:'Contracts coming up for renewal',amt:soon.length+'',p:soon.map(r=>`<b>${esc(r.vendor)}</b> ${esc(r.what)} ends ${fmtD(r.end)} (${r.left} days)`).join('; ')+'.'});
+  if(exp.length)items.push({sev:'warn',t:'Expired term with no renewal on file',amt:exp.length+'',p:exp.map(r=>`<b>${esc(r.vendor)}</b> ${esc(r.ref)} ended ${fmtD(r.end)}`).join('; ')+'. Confirm the current term.'});
+  if(miss.length)items.push({sev:'info',t:'Maintenance contracts with no term dates',amt:miss.length+'',p:miss.map(r=>esc(r.vendor)).join(', ')+'. Without dates the page can\'t warn before they lapse or apply the $30K amortization rule.'});
+  // settings still pending
+  const ar=allowRec(CQ);if(ar.status!=='confirmed')items.push({sev:'info',t:`${qLabel(CQ).slice(0,4)} allowance not yet confirmed`,amt:kfmt(ar.CapEx)+' / '+kfmt(ar.OpEx),p:esc(ar.note||'Using the default allowance until Finance confirms.')});
+  if(CFG.fx&&CFG.fx.status!=='confirmed')items.push({sev:'info',t:'USD rates are provisional',amt:'as of '+fmtD(CFG.fx.asOf),p:'Third-party amounts are converted at planning rates in settings.js. Swap in Finance\'s rate source when it\'s confirmed.'});
+  $('#watch').innerHTML=items.length?items.map(i=>`<div class="w"><span class="sev sev-${i.sev}"></span><h3>${i.t}</h3><span class="amt">${i.amt}</span><p>${i.p}</p></div>`).join(''):'<div class="sub-muted">Nothing flagged.</div>';
+}
+
+/* ---------- third party ---------- */
+function renderTP(){
+  const rows=D.tp.filter(t=>t.slices.some(s=>s.q===S.q)||((t.kind==='hold'||t.kind==='noccy')&&t.fq===S.q)).sort((a,b)=>(b.usd||0)-(a.usd||0));
+  $('#tp-title').textContent='Third-party requisitions · '+qLabel(S.q);
+  $('#tp-sub').innerHTML=`Requisitions to outside vendors, converted to USD. ${S.tpMode==='none'?'Not counted in the envelopes right now.':S.tpMode==='capex'?'CapEx lines count in the envelopes; OpEx lines are shown here only.':'All lines count in the envelopes.'} Third-party data as of <b>${fmtD(D.tpDate)}</b>${D.tpNote?' <span class="age">(carried, see watch list)</span>':''}.`;
+  const inQ=t=>sum(t.slices.filter(s=>s.q===S.q),s=>s.usd);
+  const cnt=rows.filter(tpCounts),notc=rows.filter(t=>!tpCounts(t)&&t.kind!=='hold'&&t.kind!=='noccy');
+  $('#tp-tiles').innerHTML=[
+    ['t-tp','Counted in envelopes',cnt.length+' · '+kfmt(sum(cnt,inQ)),'CapEx '+kfmt(sum(cnt.filter(t=>t.cat==='CapEx'),inQ))+' · OpEx '+kfmt(sum(cnt.filter(t=>t.cat==='OpEx'),inQ))],
+    ['t-all','Shown, not counted',notc.length+' · '+kfmt(sum(notc,inQ)),'switch Count to include'],
+    ['t-hold','On hold or no rate',rows.filter(t=>t.kind==='hold'||t.kind==='noccy').length+'','left out of totals']
+  ].map(([c,t,v,d])=>`<div class="tile ${c}" style="cursor:default"><span class="t">${t}</span><span class="c">${v}</span><span class="d">${d}</span></div>`).join('');
+  $('#tptable tbody').innerHTML=rows.length?rows.map(t=>`<tr><td class="wcell">${esc(t.v)}</td><td class="mono">${esc(t.r)}</td><td class="mono">${esc(t.d)}</td><td><span class="mono">${esc(t.a)}</span> <span class="sub-muted">${esc(t.ad)}</span>${t.acctStatus==='unmapped'?' '+tag('warn','unmapped'):''}</td><td class="cat">${t.cat}${tpCounts(t)?'':' <span class="sub-muted">not counted</span>'}</td><td class="r num">${t.amt.toLocaleString('en-US')}</td><td>${esc(t.ccy2)}${t.inferred?' <span class="sub-muted" title="Currency code 0 in EDNA. Inferred from the requisition number.">inferred</span>':''}</td><td class="r num">${t.kind==='hold'||t.kind==='noccy'?'-':money(inQ(t))}</td><td class="wcell">${esc(t.landTxt)}${t.note?'<div class="sub-muted">'+esc(t.note)+'</div>':''}</td><td>${t.proj?`<span class="mono">${esc(t.proj)}</span>${t.projSrc==='assigned'?' <span class="sub-muted">assigned</span>':''}`:'<span class="sub-muted">none</span>'}</td><td class="mono">${fmtD(t.date)}${t.na?' <span class="sub-muted" title="Not approved yet. Created date shown.">not approved</span>':''}</td></tr>`).join(''):'<tr><td colspan="11" class="empty">None landing in this quarter.</td></tr>';
+}
+
+function renderFoot(){
+  $('#foot').textContent=(D.source==='live'?'Live from EDNA via your Snowflake connector, pulled '+D.at.toLocaleString('en-US')+'.':'Pulled from EDNA on '+fmtD(SNAP_DATE)+'. Rebuilt from Snowflake every Wednesday morning.')+' Sources: EDNA.CONS_INSIGHTS_MART.EDNA_ORDER_MANAGEMENT_REPORT and EDNA_PROCUREMENT. Rules: settings.js ('+(CFG.version||'not loaded')+'). '+fys(Object.keys(HIST)).join(', ')+' quarters are summary totals only. This page is the source of truth for the Global Lab budget; the Sigma workbook is retired. '+BUILD+'.';
+}
+function renderAll(){renderRail();renderQTable();renderEnvelopes();renderOrders();renderParts();renderChart('CapEx');renderChart('OpEx');renderDepts();renderProjects();renderTP();renderContracts();renderWatch();renderFoot();}
+
+/* ---------- boot ---------- */
+build(snapshotRows(),snapshotTP(),SNAP_DATE);
+S.q=D.CURQ;
+try{const sv=JSON.parse(localStorage.getItem('glbt')||'{}');if(D.QUARTERS.includes(sv.q))S.q=sv.q;if(['placed','budget','gl'].includes(sv.mode))S.mode=sv.mode;if(['none','capex','all'].includes(sv.tpMode))S.tpMode=sv.tpMode;}catch(e){}
+setFresh('snap');renderAll();
+let autoLive=false;try{autoLive=localStorage.getItem('glbt-live')==='1';}catch(e){}
+if(autoLive||!(LD.O&&LD.O.length))refresh();

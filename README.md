@@ -6,7 +6,7 @@ Working repo for the Global Lab budget tracker and the documents behind it. Owne
 
 | Path | What it is |
 |---|---|
-| `global-lab-budget-tracker/` | The published Claude artifact "Global Lab Budget Tracker" (`index.html`, `data.js`). Pulls live ICO order data from Snowflake (`EDNA_ORDER_MANAGEMENT_REPORT`). CapEx $300K and OpEx $100K per quarter, depts 7030, 7110, 7120, 7130, 7140. |
+| `global-lab-budget-tracker/` | Source, build and test harness for the Global Lab Budget Tracker artifact, the source of truth for the lab budget (Sigma is retired). See its README for the weekly refresh. |
 | `lab-forecast-engine-teardown/` | The published Claude artifact "Lab Forecast Engine Teardown" (`index.html`). |
 | `docs/source-docs/` | Design and handoff documents pulled from SharePoint / Copilot Chat Files. See index below. |
 
@@ -14,7 +14,7 @@ Artifact URLs:
 - Budget Tracker: https://claude.ai/artifact/G15yu1y4MHoQUPTggoF85b
 - Forecast Engine Teardown: https://claude.ai/artifact/JtEoTT2RZyUxyAhpRVQk25
 
-The repo copy is a working copy. Changes here do not reach the live artifact until it is republished.
+Changes here reach the live artifact only when `global-lab-budget-tracker/dist/` is rebuilt and republished.
 
 ## Source document index
 
