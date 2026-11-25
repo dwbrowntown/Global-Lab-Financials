@@ -35,6 +35,8 @@ const click = (w, sel) => { const el = w.document.querySelector(sel); if (!el) {
   const ev = expr => w.eval(expr);
 
   facts.currentQuarter = ev('D.CURQ');
+  facts.rules = q('#fq-rules').textContent.replace(/\s+/g, ' ').trim();
+  ok(/\$5,000/.test(facts.rules) && /\$30,000/.test(facts.rules) && /last part ships/.test(facts.rules), 'rules strip missing a rule');
   facts.orders = ev('D.orders.length');
   facts.tpLines = ev('D.tp.length');
   ok(facts.currentQuarter === 'FY27Q2', 'current quarter is ' + facts.currentQuarter);
@@ -104,7 +106,8 @@ const click = (w, sel) => { const el = w.document.querySelector(sel); if (!el) {
   facts.watch = watch;
   for (const must of ['Third-party data is older', 'Requisitions on hold', 'Account code to correct', 'Third-party CapEx in FY27 Q2', 'CapEx orders under', 'Contracts coming up for renewal', 'waiting on your call', 'outside your budget', 'Reclasses you approved', 'Orders left out'])
     ok(watch.some(t => t.includes(must)), 'watch list missing: ' + must);
-  ok(!watch.some(t => t.includes('out of date')), 'fresh snapshot flagged as stale');
+  const age = ev('snapAge()'), staleDays = ev('STALE_DAYS');
+  ok(watch.some(t => t.includes('out of date')) === (age > staleDays), `stale flag wrong for a ${age}-day-old snapshot`);
 
   // 6. third-party section and contracts
   const tpRows = qa('#tptable tbody tr').length;

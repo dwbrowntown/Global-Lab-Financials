@@ -691,7 +691,17 @@ function renderTP(){
 function renderFoot(){
   $('#foot').textContent=(D.source==='live'?'Live from EDNA via your Snowflake connector, pulled '+D.at.toLocaleString('en-US')+'.':'Pulled from EDNA on '+fmtD(SNAP_DATE)+'. Rebuilt from Snowflake every Wednesday morning.')+' Sources: EDNA.CONS_INSIGHTS_MART.EDNA_ORDER_MANAGEMENT_REPORT and EDNA_PROCUREMENT. Rules: settings.js ('+(CFG.version||'not loaded')+'). '+fys(Object.keys(HIST)).join(', ')+' quarters are summary totals only. This page is the source of truth for the Global Lab budget; the Sigma workbook is retired. '+BUILD+'.';
 }
-function renderAll(){renderRail();renderQTable();renderEnvelopes();renderOrders();renderParts();renderChart('CapEx');renderChart('OpEx');renderDepts();renderProjects();renderTP();renderContracts();renderWatch();renderFoot();}
+/* ---------- accounting rules strip (values come from settings.js) ---------- */
+function renderRules(){
+  const k=v=>'$'+Number(v).toLocaleString('en-US');
+  $('#fq-rules').innerHTML=[
+    `<div><b>CapEx</b> is a new asset over ${k(ASSET_MIN)}. Finance books one asset per project per site, so small orders on the same project count together. Coded 2xxxx, usually 20050.</div>`,
+    `<div><b>OpEx</b> is everything else, including items under ${k(ASSET_MIN)} that aren't on a project. Coded 8xxxx.</div>`,
+    `<div><b>Maintenance and support</b> is OpEx, spread over its term here. Finance: ${k(AMORT_MIN)} a year or more is prepaid and amortized monthly; under ${k(AMORT_MIN)} is expensed when posted.</div>`,
+    `<div><b>Timing</b>: an order's full cost lands in the quarter its last part ships, using the scheduled ship date until it ships. Allowance is ${kfmt(allowFor(D.CURQ,'CapEx'))} CapEx and ${kfmt(allowFor(D.CURQ,'OpEx'))} OpEx a quarter; Yellow from 70%, Red from 90%.</div>`
+  ].join('');
+}
+function renderAll(){renderRail();renderQTable();renderRules();renderEnvelopes();renderOrders();renderParts();renderChart('CapEx');renderChart('OpEx');renderDepts();renderProjects();renderTP();renderContracts();renderWatch();renderFoot();}
 
 /* ---------- boot ---------- */
 build(snapshotRows(),snapshotTP(),SNAP_DATE);

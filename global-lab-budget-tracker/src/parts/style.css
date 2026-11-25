@@ -198,3 +198,5 @@ details.defs summary{cursor:pointer;font-weight:700;font-size:15px}
 .settle{font-size:12.5px;color:var(--muted);margin:0 0 10px}
 .settle b{color:var(--ink)}
 .foot{overflow-wrap:anywhere}
+.rules{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr));gap:8px 18px;margin-top:12px;padding-top:12px;border-top:1px dashed var(--line);font-size:12.5px;color:var(--muted);line-height:1.4}
+.rules b{color:var(--ink)}

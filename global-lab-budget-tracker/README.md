@@ -3,7 +3,7 @@
 The source of truth for the Global Lab budget (depts 7030, 7110, 7120, 7130, 7140). The Sigma workbook is retired.
 
 - Artifact: https://claude.ai/artifact/G15yu1y4MHoQUPTggoF85b
-- Version: build 3 (2026-11-13)
+- Version: build 4 (2026-11-25)
 - Weekly refresh: scheduled task "Global Lab Budget Tracker weekly refresh", Wednesdays 6:41am ET. It needs the Snowflake connector added to the task in claude.ai to run.
 - Owner: Dan Brown
 
